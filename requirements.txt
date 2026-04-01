@@ -1,0 +1,27 @@
+# 核心语音识别与处理
+funasr
+modelscope
+torch
+torchaudio
+numpy
+pyaudio
+
+# 语音活动检测
+silero-vad
+
+# 大模型与网络请求
+requests
+
+# 语音合成与播放
+edge-tts
+pygame
+
+# Web 测试端支持
+fastapi
+uvicorn
+websockets
+
+# 其他工具
+python-multipart
+aiohttp
+EOF
