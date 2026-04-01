@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 tz_beijing = datetime.timezone(datetime.timedelta(hours=8))
 
 class LLMModule:
-    def __init__(self, api_key, api_url="https://api.edgefn.net/v1/chat/completions", model="deepseek-chat"):
+    def __init__(self, api_key, api_url="https://api.edgefn.net/v1/chat/completions", model="DeepSeek-V3.2"):
         logger.info(f"正在初始化 LLM 模块 (模型: {model})...")
         self.api_key = api_key
         self.api_url = api_url
