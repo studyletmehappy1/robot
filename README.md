@@ -15,10 +15,10 @@
 
 ---
 
-## 运行环境要求 (重要)
+## 运行环境要求
 
 - **操作系统**: Windows, macOS 或 Linux (推荐 Ubuntu 20.04+)
-- **Python 版本**: **必须使用 Python 3.11.x** (低于此版本会导致依赖安装失败)
+- **Python 版本**: **Python 3.10** 或 **Python 3.11** (推荐 3.10.x)
 - **硬件要求**: 至少 4GB 内存，推荐具备音频采集（麦克风）和播放（扬声器）设备。
 
 ---
@@ -30,28 +30,28 @@
 由于涉及音频采集和播放，需要安装以下系统库：
 ```bash
 sudo apt-get update
-sudo apt-get install -y libasound2-dev libportaudio2 portaudio19-dev build-essential gcc g++ python3.11-dev
+sudo apt-get install -y libasound2-dev libportaudio2 portaudio19-dev build-essential gcc g++
 ```
 
 ### 2. 创建并激活虚拟环境 (推荐)
 
 使用 Conda 或 venv 创建环境：
 ```bash
-# 使用 Conda (推荐)
-conda create -n robot_env python=3.11
+# 使用 Conda
+conda create -n robot_env python=3.10
 conda activate robot_env
 
 # 或使用 venv
-python3.11 -m venv venv
+python3.10 -m venv venv
 source venv/bin/activate  # Linux/macOS
 # venv\Scripts\activate  # Windows
 ```
 
-### 3. 安装 Python 依赖 (推荐使用清华源加速)
+### 3. 安装 Python 依赖
 
 ```bash
 pip install --upgrade pip
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install -r requirements.txt
 ```
 
 ---
@@ -82,11 +82,7 @@ python server.py
 - `static/`: Web 端前端界面文件。
 - `test_llm.py`: LLM 响应格式与功能测试脚本。
 
-## 常见问题排查
+## 交互说明
 
-1. **报错: Could not find a version that satisfies the requirement EOF**
-   - 原因: 之前的 requirements.txt 曾被错误写入 EOF 字符。
-   - 解决: 当前版本已物理修复，请确保拉取的是最新 master 分支代码。
-2. **报错: Requires-Python >=3.11**
-   - 原因: FunASR 和部分依赖库要求 Python 3.11 及以上版本。
-   - 解决: 请确保 `python --version` 显示为 3.11.x，推荐使用 Conda 重新创建 3.11 环境。
+- **唤醒词**: 说出 **"小艺小艺"** 即可打断机器人当前的动作并开始新的对话。
+- **即时打断**: 机器人在说话或思考时，您可以随时说话进行打断，它会立即响应您的最新指令。
