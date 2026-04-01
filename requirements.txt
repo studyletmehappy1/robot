@@ -1,22 +1,13 @@
-# 核心语音识别与处理
 funasr>=1.1.0
 modelscope>=1.14.0
 torch>=2.1.0
 torchaudio>=2.1.0
 numpy<2.0.0
 pyaudio
-
-# 语音活动检测
 silero-vad
-
-# 大模型与网络请求
 requests
-
-# 语音合成与播放
 edge-tts
 pygame
-
-# Web 测试端支持
 fastapi
 uvicorn
 websockets
