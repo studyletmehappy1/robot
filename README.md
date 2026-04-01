@@ -15,11 +15,11 @@
 
 ## 性能与稳定性优化
 
-针对 CPU 算力不足导致的音频积压及 VAD 检测不精准问题，进行了以下深度优化：
+针对最新系列显卡（如 RTX 50 系列）及 CPU 算力不足导致的音频积压问题，进行了以下深度优化：
 
-1.  **硬件加速方案**:
-    *   **ASR 模块**: 优先使用 `CUDA` 加速。强制将 `FunASR` 推理挂载到 GPU 上，彻底解决大模型识别时的音频积压问题。
-    *   **VAD 模块**: 强制运行在 **CPU** 上。由于 Silero-VAD 模型极其轻量，CPU 推理已足够快，且能避开部分显卡架构的 CUDA 指令集兼容问题（解决 `kernel image` 报错）。
+1.  **硬件加速与容错降级**:
+    *   **ASR 模块**: 优先使用 `CUDA` 加速。新增 **GPU 容错降级逻辑**：若检测到显卡架构不兼容（常见于 RTX 50 系列用户安装旧版 CUDA），系统将自动打印高亮警告并降级至 CPU 运行，确保程序不崩溃。
+    *   **VAD 模块**: 强制运行在 **CPU** 上。由于 Silero-VAD 模型极其轻量，CPU 推理已足够快，且能彻底避开显卡架构的 CUDA 指令集兼容问题。
 2.  **优化 VAD 尾点检测逻辑**:
     *   将 `max_silence_chunks` 提升至 **60**（约 1.92 秒），提供更自然的停顿空间。
     *   新增高亮日志：在触发 LLM 思考时，终端会打印 `[系统] 听您说完了，正在思考中...`。
@@ -36,7 +36,7 @@
 - **Python 版本**: **Python 3.10** 或 **Python 3.11**
 - **硬件要求**: 
     *   **推荐配置**: 配备 **NVIDIA 独立显卡**（如 RTX 30/40/50 系列）以开启 GPU 加速。
-    *   **最低配置**: 纯 CPU 推理虽可运行，但 ASR 识别可能会有显著延迟，导致语音流积压。
+    *   **排坑提示**: 对于 **RTX 50 系列** 等最新架构显卡，若使用旧版 CUDA (如 12.1) 可能会触发 `no kernel image is available` 报错。强烈建议安装 **CUDA 12.4 (`cu124`)** 或以上版本的 PyTorch。
 
 ---
 
@@ -53,10 +53,10 @@ sudo apt-get install -y libasound2-dev libportaudio2 portaudio19-dev build-essen
 
 根据您的硬件选择安装方式：
 
-*   **GPU 版本 (推荐, 以 CUDA 12.1 为例)**:
-    使用国内镜像高速安装：
+*   **GPU 版本 (推荐, 针对 RTX 30/40/50 系列用户)**:
+    使用国内镜像高速安装 **CUDA 12.4** 版本（推荐新显卡用户）：
     ```bash
-    pip install torch torchvision torchaudio --index-url https://mirrors.aliyun.com/pytorch-wheels/cu121
+    pip install torch torchvision torchaudio --index-url https://mirrors.aliyun.com/pytorch-wheels/cu124
     ```
 *   **CPU 版本**:
     ```bash

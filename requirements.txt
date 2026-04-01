@@ -1,6 +1,7 @@
 funasr>=1.1.0
 modelscope>=1.14.0
 # 若需开启 GPU 加速，请勿直接执行默认安装，需根据 README 中的指令安装对应 CUDA 版本的 torch/torchaudio
+# 推荐 RTX 50 等最新系列显卡用户安装 cu124 或更高版本以避免兼容性报错
 torch>=2.1.0
 torchaudio>=2.1.0
 numpy<2.0.0
