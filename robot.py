@@ -41,7 +41,7 @@ class Robot:
         self.speech_buffer = []
         self.vad_start = False
         self.silence_chunks = 0
-        self.max_silence_chunks = 10  # 约 320ms 静音判定结束
+        self.max_silence_chunks = 60  # 约 1.92 秒静音判定结束 (针对音频积压优化)
         self.streaming_text = ""  # 当前流式识别累积文本
         
         # 记忆管理 (简单实现)
@@ -206,7 +206,10 @@ class Robot:
                             
                             if self.silence_chunks > self.max_silence_chunks:
                                 print() # 换行
+                                # 触发截断、准备调用 LLM 的那一刻，打印高亮日志
+                                print("\033[92m\n[系统] 听您说完了，正在思考中...\033[0m")
                                 logger.info("检测到人声结束，准备处理...")
+                                
                                 # 获取最后一部分结果
                                 final_chunk = self.asr.transcribe_chunk(b"", is_final=True)
                                 if final_chunk:

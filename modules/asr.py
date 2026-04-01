@@ -1,27 +1,31 @@
 import logging
+import torch
 from funasr import AutoModel
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
 class ASRModule:
-    def __init__(self, model_name="paraformer-zh-streaming", device="cpu"):
+    def __init__(self, model_name="paraformer-zh-streaming"):
         """
         初始化流式 ASR 模块。
         使用 paraformer-zh-streaming 官方模型 ID 支持流式输出。
         """
+        # 增加硬件检测逻辑
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"正在初始化流式 ASR 模块 (模型: {model_name}, 设备: {device})...")
         try:
             # 这里的 model 参数更正为官方支持的流式模型 ID
             self.model = AutoModel(
                 model="damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online",
                 device=device,
-                disable_update=True
+                disable_update=True,
+                disable_pbar=True  # 屏蔽底层刷屏日志
             )
             # 流式识别的状态缓存
             self.chunk_size = [0, 10, 5]  # [60, 10, 5] 对应 600ms 延迟
             self.cache = {}
-            logger.info("流式 ASR 模块初始化完成。")
+            logger.info(f"流式 ASR 模块初始化完成，运行设备: {device}。")
         except Exception as e:
             logger.error(f"ASR 模块初始化失败: {e}")
             self.model = None
