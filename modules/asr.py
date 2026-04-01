@@ -8,13 +8,13 @@ class ASRModule:
     def __init__(self, model_name="paraformer-zh-streaming", device="cpu"):
         """
         初始化流式 ASR 模块。
-        使用 paraformer-zh-streaming 模型支持流式输出。
+        使用 paraformer-zh-streaming 官方模型 ID 支持流式输出。
         """
         logger.info(f"正在初始化流式 ASR 模块 (模型: {model_name}, 设备: {device})...")
         try:
-            # 这里的 model 参数需要指向支持流式的模型，如 damo/speech_paraformer-acoustic-token_streaming-zh-cn-16k-common-vocab8404-pytorch
+            # 这里的 model 参数更正为官方支持的流式模型 ID
             self.model = AutoModel(
-                model="damo/speech_paraformer-acoustic-token_streaming-zh-cn-16k-common-vocab8404-pytorch",
+                model="damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online",
                 device=device,
                 disable_update=True
             )
