@@ -11,13 +11,14 @@ class VADModule:
         初始化 VAD 模块。
         直接使用 silero_vad pip 包加载模型，避免访问 GitHub API 触发 403 错误。
         """
-        # 增加硬件检测逻辑
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        logger.info(f"正在初始化 VAD 模块 (使用 silero-vad 本地加载, 设备: {self.device})...")
+        # 强制使用 CPU 推理，避免 CUDA error: no kernel image is available 报错
+        # Silero-VAD 模型非常轻量，在 CPU 上运行已足够快
+        self.device = torch.device("cpu")
+        logger.info(f"正在初始化 VAD 模块 (使用 silero-vad 本地加载, 强制设备: {self.device})...")
         try:
             # 弃用 torch.hub.load，改用 silero_vad 包提供的本地加载函数
             self.model = load_silero_vad()
-            # 强制将模型挂载到 GPU 上运行
+            # 强制将模型挂载到 CPU 上运行
             self.model.to(self.device)
             self.threshold = threshold
             self.sampling_rate = sampling_rate
@@ -38,7 +39,7 @@ class VADModule:
             # 将 bytes 转换为 float32 numpy 数组
             audio_int16 = np.frombuffer(audio_chunk, dtype=np.int16)
             audio_float32 = audio_int16.astype(np.float32) / 32768.0
-            # 将 tensor 移至对应设备
+            # 将 tensor 移至 CPU 设备
             tensor_chunk = torch.from_numpy(audio_float32).to(self.device)
             
             # 模型输入需要 [batch, time] 形状
