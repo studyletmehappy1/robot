@@ -18,7 +18,7 @@
 ## 运行环境要求
 
 - **操作系统**: Windows, macOS 或 Linux (推荐 Ubuntu 20.04+)
-- **Python 版本**: **Python 3.10** 或 **Python 3.11** (推荐 3.10.x)
+- **Python 版本**: **推荐使用 Python 3.11** (FunASR 等核心库对 3.11+ 兼容性更好)
 - **硬件要求**: 至少 4GB 内存，推荐具备音频采集（麦克风）和播放（扬声器）设备。
 
 ---
@@ -38,20 +38,20 @@ sudo apt-get install -y libasound2-dev libportaudio2 portaudio19-dev build-essen
 使用 Conda 或 venv 创建环境：
 ```bash
 # 使用 Conda
-conda create -n robot_env python=3.10
+conda create -n robot_env python=3.11
 conda activate robot_env
 
 # 或使用 venv
-python3.10 -m venv venv
+python3.11 -m venv venv
 source venv/bin/activate  # Linux/macOS
 # venv\Scripts\activate  # Windows
 ```
 
-### 3. 安装 Python 依赖
+### 3. 安装 Python 依赖 (推荐使用清华源加速)
 
 ```bash
 pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 ---
@@ -86,3 +86,4 @@ python server.py
 
 - **唤醒词**: 说出 **"小艺小艺"** 即可打断机器人当前的动作并开始新的对话。
 - **即时打断**: 机器人在说话或思考时，您可以随时说话进行打断，它会立即响应您的最新指令。
+EOF
