@@ -45,7 +45,7 @@ class Robot:
         
         # 记忆管理 (简单实现)
         self.messages = [
-            {"role": "system", "content": "你是一个成熟、稳重、靠谱的家庭智能管家机器人。"}
+            {"role": "system", "content": self.llm.create_system_prompt()}
         ]
         
         logger.info("机器人系统初始化完成。")
@@ -123,6 +123,8 @@ class Robot:
         """
         处理对话逻辑。
         """
+        # 每次对话前动态更新一次系统提示词以同步最新时间
+        self.messages[0] = {"role": "system", "content": self.llm.create_system_prompt()}
         self.messages.append({"role": "user", "content": text})
         
         # 限制上下文长度
