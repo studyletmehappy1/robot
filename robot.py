@@ -42,6 +42,7 @@ class Robot:
         self.vad_start = False
         self.silence_chunks = 0
         self.max_silence_chunks = 10  # 约 320ms 静音判定结束
+        self.streaming_text = ""  # 当前流式识别累积文本
         
         # 记忆管理 (简单实现)
         self.messages = [
@@ -83,22 +84,16 @@ class Robot:
             return True
         return False
 
-    def process_speech(self):
+    def process_speech_text(self, text):
         """
-        处理收集到的语音片段。
+        处理识别出的文本。
         """
-        if not self.speech_buffer:
-            return
+        self.speech_buffer = [] # 清理音频缓冲区
         
-        full_audio = b"".join(self.speech_buffer)
-        self.speech_buffer = []
-        
-        # ASR 识别
-        text = self.asr.transcribe(full_audio)
         if not text or not text.strip():
             return
         
-        logger.info(f"识别结果: {text}")
+        logger.info(f"最终识别结果: {text}")
         
         # 唤醒词过滤逻辑 (简单实现)
         if self.wake_word in text:
@@ -112,9 +107,6 @@ class Robot:
                 future = self.executor.submit(self.tts.to_tts, text)
                 self.tts_queue.put(future)
                 return
-        
-        # 如果当前不是在听状态 (比如 IDLE)，且没有唤醒词，则忽略
-        # 这里简化逻辑，默认全双工监听
         
         self.chat_lock = True
         self.executor.submit(self.chat, text)
@@ -188,22 +180,43 @@ class Robot:
                         if not self.vad_start:
                             logger.info("检测到人声开始...")
                             self.vad_start = True
+                            self.streaming_text = ""
+                            self.asr.reset_cache()
                             # 如果正在说话，立即打断
                             self.interrupt()
                         
                         self.speech_buffer.append(audio_chunk)
                         self.silence_chunks = 0
+                        
+                        # 流式 ASR 识别并打印
+                        text_chunk = self.asr.transcribe_chunk(audio_chunk, is_final=False)
+                        if text_chunk:
+                            self.streaming_text += text_chunk
+                            print(f"\r[正在识别] {self.streaming_text}", end="", flush=True)
                     else:
                         if self.vad_start:
                             self.speech_buffer.append(audio_chunk)
                             self.silence_chunks += 1
                             
+                            # 即使在静音期间，也继续尝试识别剩余部分
+                            text_chunk = self.asr.transcribe_chunk(audio_chunk, is_final=False)
+                            if text_chunk:
+                                self.streaming_text += text_chunk
+                                print(f"\r[正在识别] {self.streaming_text}", end="", flush=True)
+                            
                             if self.silence_chunks > self.max_silence_chunks:
+                                print() # 换行
                                 logger.info("检测到人声结束，准备处理...")
+                                # 获取最后一部分结果
+                                final_chunk = self.asr.transcribe_chunk(b"", is_final=True)
+                                if final_chunk:
+                                    self.streaming_text += final_chunk
+                                
                                 self.vad_start = False
                                 self.silence_chunks = 0
-                                # 异步处理语音
-                                threading.Thread(target=self.process_speech, daemon=True).start()
+                                # 异步处理语音 (这里直接传入已识别的文本)
+                                final_text = self.streaming_text
+                                threading.Thread(target=self.process_speech_text, args=(final_text,), daemon=True).start()
                 except queue.Empty:
                     continue
                 except Exception as e:

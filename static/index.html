@@ -11,6 +11,7 @@
         .message { margin-bottom: 15px; line-height: 1.6; }
         .user-message { color: #007bff; text-align: right; font-weight: bold; }
         .robot-message { color: #333; text-align: left; }
+        .streaming-asr { font-style: italic; color: #888; font-size: 0.9em; padding: 0 20px 10px; text-align: right; min-height: 1.2em; }
         .input-container { padding: 20px; display: flex; gap: 10px; }
         input[type="text"] { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; outline: none; }
         button { padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; transition: background-color 0.2s; }
@@ -25,6 +26,7 @@
         <div id="chatMessages" class="chat-messages">
             <div class="message robot-message">你好！我是你的智能管家，请随时对我下达指令。</div>
         </div>
+        <div id="streamingAsr" class="streaming-asr"></div>
         <div class="input-container">
             <input type="text" id="userInput" placeholder="输入指令 (如：现在几点了？)" onkeypress="handleKeyPress(event)">
             <button id="sendBtn" onclick="sendMessage()">发送</button>
@@ -37,6 +39,7 @@
         const userInput = document.getElementById('userInput');
         const sendBtn = document.getElementById('sendBtn');
         const status = document.getElementById('status');
+        const streamingAsr = document.getElementById('streamingAsr');
         
         const ws = new WebSocket(`ws://${window.location.host}/ws`);
         let currentRobotMessage = null;
@@ -54,7 +57,13 @@
         ws.onmessage = async (event) => {
             if (typeof event.data === 'string') {
                 const data = JSON.parse(event.data);
-                if (data.type === 'text_chunk') {
+                
+                if (data.type === 'asr_chunk') {
+                    streamingAsr.innerText = "正在识别: " + data.content;
+                } else if (data.type === 'asr_final') {
+                    streamingAsr.innerText = "";
+                    addUserMessage(data.content);
+                } else if (data.type === 'text_chunk') {
                     if (!currentRobotMessage) {
                         currentRobotMessage = document.createElement('div');
                         currentRobotMessage.className = 'message robot-message';
@@ -68,7 +77,6 @@
                     sendBtn.disabled = false;
                 }
             } else {
-                // 收到音频二进制数据
                 const audioBlob = new Blob([event.data], { type: 'audio/mpeg' });
                 const audioUrl = URL.createObjectURL(audioBlob);
                 const audio = new Audio(audioUrl);
@@ -76,19 +84,19 @@
             }
         };
 
-        function sendMessage() {
-            const text = userInput.value.trim();
-            if (!text || ws.readyState !== WebSocket.OPEN) return;
-
-            // 显示用户消息
+        function addUserMessage(text) {
             const userMsgDiv = document.createElement('div');
             userMsgDiv.className = 'message user-message';
             userMsgDiv.innerText = text;
             chatMessages.appendChild(userMsgDiv);
             chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
 
-            // 发送消息
-            ws.send(json.stringify({ type: 'text', content: text }));
+        function sendMessage() {
+            const text = userInput.value.trim();
+            if (!text || ws.readyState !== WebSocket.OPEN) return;
+            addUserMessage(text);
+            ws.send(JSON.stringify({ type: 'text', content: text }));
             userInput.value = '';
             sendBtn.disabled = true;
         }
