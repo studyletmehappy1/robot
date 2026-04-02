@@ -1,96 +1,99 @@
 import os
 import logging
-import requests
-import zipfile
-import sherpa_onnx
+import urllib.request
+import tarfile
 import numpy as np
+import sherpa_onnx
 
 logger = logging.getLogger(__name__)
 
 class KWSModule:
-    def __init__(self, model_dir="models/kws"):
-        """
-        初始化 KWS 模块。
-        model_dir: 唤醒模型存放目录
-        """
-        self.model_dir = model_dir
-        self._ensure_model()
+    def __init__(self, keywords_file="keywords.txt"):
+        self.model_dir = "sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01"
+        self.keywords_file = keywords_file
         
-        # 唤醒词文件
-        self.keywords_file = "keywords.txt"
+        self._ensure_keywords_file()
+        self._check_and_download_model()
+        self._init_spotter()
+
+    def _ensure_keywords_file(self):
+        # 如果没有 keywords.txt，自动生成一个
         if not os.path.exists(self.keywords_file):
             with open(self.keywords_file, "w", encoding="utf-8") as f:
-                f.write("小艺小艺 @ x iǎo y ì x iǎo y ì\n")
-        
-        # 初始化 sherpa-onnx 唤醒器
-        self._init_spotter()
-        logger.info("KWS 唤醒模块初始化完成。")
+                # 默认唤醒词：小艺小艺。拼音之间必须有空格，@ 符号后面跟中文字符
+                f.write("x iǎo y ì x iǎo y ì @小艺小艺\n")
+            logger.info(f"已自动生成唤醒词配置文件: {self.keywords_file}")
 
-    def _ensure_model(self):
-        """确保模型文件存在，不存在则下载"""
+    def _check_and_download_model(self):
+        # 如果本地没有模型目录，则自动下载（带国内代理加速）
         if not os.path.exists(self.model_dir):
-            os.makedirs(self.model_dir, exist_ok=True)
+            logger.info("正在下载 KWS 极速唤醒模型 (约 3MB)，请稍候...")
+            base_url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/"
+            filename = "sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01.tar.bz2"
+            url = f"https://mirror.ghproxy.com/{base_url}{filename}"
             
-        # 使用指定的中文唤醒模型
-        model_url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01.tar.bz2"
-        # 注意：由于 sandbox 环境可能无法直接下载大型 github release，
-        # 这里仅作为逻辑展示。实际部署时用户需确保网络畅通。
-        # 为简化逻辑，假设模型已存在或通过其他方式获取。
-        
+            if not os.path.exists(filename):
+                try:
+                    urllib.request.urlretrieve(url, filename)
+                except Exception as e:
+                    logger.warning(f"代理下载失败，尝试原链接直连: {e}")
+                    urllib.request.urlretrieve(f"{base_url}{filename}", filename)
+                    
+            logger.info("模型下载完成，正在解压...")
+            with tarfile.open(filename, "r:bz2") as tar:
+                tar.extractall(path=".")
+            logger.info("唤醒模型准备完毕。")
+
     def _init_spotter(self):
-        """初始化 sherpa-onnx KeywordSpotter"""
-        # 模型路径配置 (根据下载的模型目录结构调整)
-        base_path = os.path.join(self.model_dir, "sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01")
-        
-        # 如果路径不存在，尝试在 model_dir 下寻找
-        if not os.path.exists(base_path):
-            # 兼容性处理：如果用户手动放了模型
-            pass
-
-        # 配置参数
-        config = sherpa_onnx.KeywordSpotterConfig(
-            feat_config=sherpa_onnx.FeatureConfig(
-                sample_rate=16000,
-                feature_dim=80,
-            ),
-            model_config=sherpa_onnx.KeywordSpotterModelConfig(
-                transducer=sherpa_onnx.OnlineTransducerModelConfig(
-                    encoder=os.path.join(base_path, "encoder-epoch-12-avg-2-chunk-16-left-64.onnx"),
-                    decoder=os.path.join(base_path, "decoder-epoch-12-avg-2-chunk-16-left-64.onnx"),
-                    joiner=os.path.join(base_path, "joiner-epoch-12-avg-2-chunk-16-left-64.onnx"),
-                ),
-                tokens=os.path.join(base_path, "tokens.txt"),
-                num_threads=1,
-                provider="cpu", # KWS 建议 CPU 运行即可
-            ),
-            keywords_file="keywords.txt",
-        )
-        
+        logger.info("正在加载 sherpa-onnx 唤醒引擎...")
         try:
-            self.spotter = sherpa_onnx.KeywordSpotter(config)
-            self.stream = self.spotter.create_stream()
+            # 【修复重点】Python 版本没有 Config 类，直接传参给 KeywordSpotter
+            self.kws = sherpa_onnx.KeywordSpotter(
+                tokens=os.path.join(self.model_dir, "tokens.txt"),
+                encoder=os.path.join(self.model_dir, "encoder-epoch-12-avg-2-chunk-16-left-64.onnx"),
+                decoder=os.path.join(self.model_dir, "decoder-epoch-12-avg-2-chunk-16-left-64.onnx"),
+                joiner=os.path.join(self.model_dir, "joiner-epoch-12-avg-2-chunk-16-left-64.onnx"),
+                num_threads=1,
+                keywords_file=self.keywords_file,
+                provider="cpu"
+            )
+            # 初始化一个专属音频接收流
+            self.stream = self.kws.create_stream()
+            logger.info("唤醒引擎加载成功！当前处于 [SLEEP] 静默监听状态。")
         except Exception as e:
-            logger.error(f"KWS 实例化失败 (请确保模型文件已正确放置在 {base_path}): {e}")
-            self.spotter = None
+            logger.error(f"KWS 初始化失败: {e}")
+            raise
 
-    def detect(self, audio_chunk):
+    def detect(self, audio_chunk, sample_rate=16000):
         """
-        检测唤醒词。
-        audio_chunk: 16k, 16bit, mono PCM 数据 (bytes)
-        返回: 唤醒词文本或 None
+        接收前端或本地的 PCM 音频块，判断是否命中唤醒词
         """
-        if self.spotter is None:
-            return None
+        if not audio_chunk or not hasattr(self, 'kws'):
+            return False
+
+        try:
+            # 1. 将网络/本地传来的 int16 字节流转换为 float32 格式 (-1.0 ~ 1.0)
+            audio_int16 = np.frombuffer(audio_chunk, dtype=np.int16)
+            audio_float32 = audio_int16.astype(np.float32) / 32768.0
+
+            # 2. 将音频块持续喂给底层的流
+            self.stream.accept_waveform(sample_rate, audio_float32)
+
+            # 3. 驱动底层引擎进行快速解码
+            while self.kws.is_ready(self.stream):
+                self.kws.decode_stream(self.stream)
+
+            # 4. 获取当前有没有匹配上的结果
+            result = self.kws.get_result(self.stream)
             
-        # 转换为 float32
-        samples = np.frombuffer(audio_chunk, dtype=np.int16).astype(np.float32) / 32768.0
-        self.stream.accept_waveform(16000, samples)
-        
-        if self.spotter.is_ready(self.stream):
-            self.spotter.decode(self.stream)
-            keyword = self.spotter.get_result(self.stream).keyword
-            if keyword:
-                # 命中后重置流
-                self.stream = self.spotter.create_stream()
-                return keyword
-        return None
+            # 5. 如果不为空，说明抓到了设定的唤醒词
+            if result != "":
+                logger.info(f"✨ 唤醒成功！命中: {result}")
+                # 【极其重要】识别到之后必须重置这条流，否则它会卡在命中状态无限循环
+                self.kws.reset_stream(self.stream)
+                return True
+
+            return False
+        except Exception as e:
+            logger.error(f"KWS 检测出错: {e}")
+            return False
