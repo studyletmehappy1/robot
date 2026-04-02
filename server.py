@@ -95,7 +95,8 @@ async def websocket_endpoint(websocket: WebSocket):
                             state["streaming_text"] += text_chunk
                             await websocket.send_json({"type": "asr_chunk", "content": state["streaming_text"]})
                         
-                        if state["silence_chunks"] > robot.max_silence_chunks:
+                        # 【重要修复】优化了这里的静音判定延迟，从默认的 60 改为了 5
+                        if state["silence_chunks"] > 5:
                             logger.info("Web 端检测到人声结束，准备处理...")
                             final_chunk = robot.asr.transcribe_chunk(b"", is_final=True)
                             if final_chunk:
@@ -120,7 +121,7 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.error(f"WebSocket 处理出错: {e}")
 
 async def handle_chat(websocket, text, state):
-    """处理对话逻辑并发送 TTS"""
+    """处理对话逻辑并发送 TTS (完整大段生成模式)"""
     if state["chat_lock"]: return
     state["chat_lock"] = True
     try:
@@ -131,53 +132,24 @@ async def handle_chat(websocket, text, state):
             robot.messages = [robot.messages[0]] + robot.messages[-20:]
             
         response_text = ""
-        sentence_buffer = ""
         
-        # 【新增】创建一个音频处理队列，保证顺序
-        audio_task_queue = asyncio.Queue()
-
-        # 【新增】专门处理音频的后台工人
-        async def audio_worker():
-            while True:
-                segment = await audio_task_queue.get()
-                if segment is None: # 收到结束信号
-                    break
-                
-                # 生成语音
-                audio_file = await robot.tts.to_tts_async(segment)
-                if audio_file:
-                    # 先发带有文字的 JSON
-                    await websocket.send_json({"type": "sentence_text", "content": segment})
-                    # 紧接着发送二进制音频
-                    with open(audio_file, "rb") as f:
-                        await websocket.send_bytes(f.read())
-                    robot.tts.clean_up(audio_file)
-                audio_task_queue.task_done()
-
-        # 启动后台工人
-        worker_task = asyncio.create_task(audio_worker())
-        
-        # 遍历 LLM 流式输出
+        # 1. 默默接收大模型的全部回复，期间不发送任何内容
         for chunk in robot.llm.call_deepseek_api(robot.messages):
             response_text += chunk
-            sentence_buffer += chunk
             
-            # 遇到标点符号，截断句子并放入队列
-            if any(p in chunk for p in ["。", "？", "！", ".", "?", "!", "，", ",", "、"]):
-                segment = sentence_buffer.strip()
-                if segment:
-                    await audio_task_queue.put(segment)
-                sentence_buffer = ""
-        
-        # 处理最后剩的一点尾巴
-        if sentence_buffer.strip():
-            await audio_task_queue.put(sentence_buffer.strip())
+        if response_text.strip():
+            # 2. 一次性将完整的回答送去合成语音
+            audio_file = await robot.tts.to_tts_async(response_text.strip())
+            
+            if audio_file:
+                # 3. 将完整文字一次性发给前端（前端会暂存）
+                await websocket.send_json({"type": "sentence_text", "content": response_text.strip()})
                 
-        # 告诉后台工人不用等了，结束吧
-        await audio_task_queue.put(None)
-        await worker_task # 等待所有音频发送完毕
-        
-        if response_text:
+                # 4. 紧接着发送完整的二进制音频，触发前端同步显示文字和播放声音
+                with open(audio_file, "rb") as f:
+                    await websocket.send_bytes(f.read())
+                robot.tts.clean_up(audio_file)
+                
             robot.messages.append({"role": "assistant", "content": response_text})
             
         await websocket.send_json({"type": "done"})
@@ -191,6 +163,5 @@ async def handle_chat(websocket, text, state):
         await websocket.send_json({"type": "status", "content": "已进入休眠，等待唤醒..."})
     finally:
         state["chat_lock"] = False
-
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
