@@ -60,6 +60,29 @@
         let processor;
         let isRecording = false;
         let currentRobotMessage = null;
+        
+        // 【新增】音频播放队列相关变量
+        let audioQueue = [];
+        let isAudioPlaying = false;
+
+        // 【新增】顺序播放队列中音频的函数
+        function playNextAudio() {
+            if (audioQueue.length === 0) {
+                isAudioPlaying = false;
+                return;
+            }
+            isAudioPlaying = true;
+            const audioUrl = audioQueue.shift();
+            const audio = new Audio(audioUrl);
+            
+            audio.onended = playNextAudio;
+            audio.onerror = playNextAudio; 
+            
+            audio.play().catch(e => {
+                console.error("音频播放失败:", e);
+                playNextAudio();
+            });
+        }
 
         function initWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -101,10 +124,14 @@
                         sendBtn.disabled = false;
                     }
                 } else {
+                    // 【核心修复】将收到的二进制音频存入队列，而不是直接播放
                     const audioBlob = new Blob([event.data], { type: 'audio/mpeg' });
                     const audioUrl = URL.createObjectURL(audioBlob);
-                    const audio = new Audio(audioUrl);
-                    audio.play();
+                    
+                    audioQueue.push(audioUrl);
+                    if (!isAudioPlaying) {
+                        playNextAudio();
+                    }
                 }
             };
         }

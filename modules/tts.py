@@ -25,6 +25,7 @@ class TTSModule:
     def to_tts(self, text):
         """
         同步封装 TTS 生成过程。
+        (专供 robot.py 和 main.py 的独立线程池使用)
         """
         if not text or not text.strip():
             return None
@@ -39,6 +40,26 @@ class TTSModule:
             return None
         except Exception as e:
             logger.error(f"TTS 生成出错: {e}")
+            return None
+
+    async def to_tts_async(self, text):
+        """
+        异步封装 TTS 生成过程。
+        (专供 server.py 的 FastAPI 异步事件循环使用，避免 asyncio 冲突)
+        """
+        if not text or not text.strip():
+            return None
+        
+        filename = f"tts_async_{int(time.time() * 1000)}.mp3"
+        output_path = os.path.join(self.output_dir, filename)
+        
+        try:
+            await self._generate_audio(text, output_path)
+            if os.path.exists(output_path):
+                return output_path
+            return None
+        except Exception as e:
+            logger.error(f"异步 TTS 生成出错: {e}")
             return None
 
     def clean_up(self, file_path):

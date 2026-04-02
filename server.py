@@ -141,7 +141,8 @@ async def handle_chat(websocket, text, state):
             if any(p in chunk for p in ["。", "？", "！", ".", "?", "!"]):
                 segment = sentence_buffer.strip()
                 if segment:
-                    audio_file = robot.tts.to_tts(segment)
+                    # 【核心修复1】替换为异步的 TTS 调用
+                    audio_file = await robot.tts.to_tts_async(segment)
                     if audio_file:
                         with open(audio_file, "rb") as f:
                             await websocket.send_bytes(f.read())
@@ -149,7 +150,8 @@ async def handle_chat(websocket, text, state):
                 sentence_buffer = ""
         
         if sentence_buffer.strip():
-            audio_file = robot.tts.to_tts(sentence_buffer.strip())
+            # 【核心修复2】替换为异步的 TTS 调用
+            audio_file = await robot.tts.to_tts_async(sentence_buffer.strip())
             if audio_file:
                 with open(audio_file, "rb") as f:
                     await websocket.send_bytes(f.read())
