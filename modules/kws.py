@@ -20,7 +20,7 @@ class KWSModule:
         # 如果没有 keywords.txt，自动生成一个
         if not os.path.exists(self.keywords_file):
             with open(self.keywords_file, "w", encoding="utf-8") as f:
-                # 默认唤醒词：小艺小艺。拼音之间必须有空格，@ 符号后面跟中文字符
+                # 默认唤醒词：小艺小艺。拼音之间必须有空格
                 f.write("x iǎo y ì x iǎo y ì\n")
             logger.info(f"已自动生成唤醒词配置文件: {self.keywords_file}")
 
@@ -47,7 +47,7 @@ class KWSModule:
     def _init_spotter(self):
         logger.info("正在加载 sherpa-onnx 唤醒引擎...")
         try:
-            # 【修复重点】Python 版本没有 Config 类，直接传参给 KeywordSpotter
+            # 直接传参给 KeywordSpotter
             self.kws = sherpa_onnx.KeywordSpotter(
                 tokens=os.path.join(self.model_dir, "tokens.txt"),
                 encoder=os.path.join(self.model_dir, "encoder-epoch-12-avg-2-chunk-16-left-64.onnx"),
@@ -72,7 +72,7 @@ class KWSModule:
             return False
 
         try:
-            # 1. 将网络/本地传来的 int16 字节流转换为 float32 格式 (-1.0 ~ 1.0)
+            # 1. 将音频字节流转换为 float32 格式
             audio_int16 = np.frombuffer(audio_chunk, dtype=np.int16)
             audio_float32 = audio_int16.astype(np.float32) / 32768.0
 
@@ -86,10 +86,10 @@ class KWSModule:
             # 4. 获取当前有没有匹配上的结果
             result = self.kws.get_result(self.stream)
             
-            # 5. 如果不为空，说明抓到了设定的唤醒词
+            # 5. 如果不为空，说明抓到了唤醒词
             if result != "":
                 logger.info(f"✨ 唤醒成功！命中: {result}")
-                # 【极其重要】识别到之后必须重置这条流，否则它会卡在命中状态无限循环
+                # 识别到之后立即重置
                 self.kws.reset_stream(self.stream)
                 return True
 
@@ -97,3 +97,12 @@ class KWSModule:
         except Exception as e:
             logger.error(f"KWS 检测出错: {e}")
             return False
+
+    def reset(self):
+        """
+        【新增修复】强制重置 KWS 内部流状态。
+        解决因为长时间不输入音频（机器人思考/说话）导致的底层模型时序断层问题。
+        """
+        if hasattr(self, 'kws') and hasattr(self, 'stream'):
+            self.kws.reset_stream(self.stream)
+            logger.info("KWS 内部声学特征已清空，准备迎接下一次唤醒。")

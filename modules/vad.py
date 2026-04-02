@@ -39,17 +39,30 @@ class VADModule:
             # 将 bytes 转换为 float32 numpy 数组
             audio_int16 = np.frombuffer(audio_chunk, dtype=np.int16)
             audio_float32 = audio_int16.astype(np.float32) / 32768.0
-            # 将 tensor 移至 CPU 设备
-            tensor_chunk = torch.from_numpy(audio_float32).to(self.device)
             
-            # 模型输入需要 [batch, time] 形状
-            if len(tensor_chunk.shape) == 1:
-                tensor_chunk = tensor_chunk.unsqueeze(0)
-                
-            # 使用模型直接推理获取置信度
-            with torch.no_grad():
-                confidence = self.model(tensor_chunk, self.sampling_rate).item()
-            return confidence > self.threshold
+            # 【核心修复】循环切片机：将 Web 传来的大包 (4096 采样) 切分为 512 的小包推理
+            chunk_size = 512
+            has_speech = False
+            
+            for i in range(0, len(audio_float32), chunk_size):
+                small_chunk = audio_float32[i:i+chunk_size]
+                if len(small_chunk) < chunk_size:
+                    break # 丢弃尾部不足 512 的数据，防止模型报错
+                    
+                tensor_chunk = torch.from_numpy(small_chunk).to(self.device)
+                if len(tensor_chunk.shape) == 1:
+                    tensor_chunk = tensor_chunk.unsqueeze(0)
+                    
+                with torch.no_grad():
+                    # 使用模型直接推理获取置信度
+                    confidence = self.model(tensor_chunk, self.sampling_rate).item()
+                    
+                # 只要这 8 个切片中有一个检测到人声，就认为这段音频有人声
+                if confidence > self.threshold:
+                    has_speech = True
+                    break 
+                    
+            return has_speech
         except Exception as e:
             logger.error(f"VAD 检测出错: {e}")
             return False
