@@ -59,7 +59,7 @@
     ```
 *   **RTX 20 / 30 / 40 系列 (如 2060S, 3060, 4090)**:
     ```bash
-    pip install torch torchvision torchaudio --index-url https://mirrors.nju.edu.cn/pytorch/whl/cu121
+    pip install torch torchvision torchaudio --index-url https://mirrors.nju.edu.cn/pytorch/whl/cu121 --extra-index-url https://mirrors.aliyun.com/pypi/simple/ --default-timeout=60 --no-cache-dir
     ```
 *   **CPU 用户**:
     ```bash
