@@ -55,11 +55,11 @@
 
 *   **RTX 50 系列等最新架构**:
     ```bash
-    pip install torch torchvision torchaudio --index-url https://mirrors.aliyun.com/pytorch-wheels/cu124
+    pip install torch torchvision torchaudio --index-url https://mirrors.nju.edu.cn/pytorch/whl/cu124
     ```
 *   **RTX 20 / 30 / 40 系列 (如 2060S, 3060, 4090)**:
     ```bash
-    pip install torch torchvision torchaudio --index-url https://mirrors.aliyun.com/pytorch-wheels/cu121
+    pip install torch torchvision torchaudio --index-url https://mirrors.nju.edu.cn/pytorch/whl/cu121
     ```
 *   **CPU 用户**:
     ```bash
