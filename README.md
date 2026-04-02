@@ -101,3 +101,25 @@ python server.py
 python -c "import torch; print(torch.cuda.is_available())"
 ```
 输出 `True` 即代表显卡加速成功。
+
+## 🛠️ 常见问题与架构修补记录 (Troubleshooting)
+
+在项目从单机终端向 Web 端/前后端分离架构迁移的过程中，我们修复了以下核心兼容性问题：
+
+### 1. Web 录音流导致 VAD 模块崩溃
+* **现象**：浏览器发送 4096 字节的音频大包，导致底层 Silero-VAD 维度不匹配报错。
+* **修复方案**：在 `modules/vad.py` 中引入“循环切片机”，将大尺寸 PCM 数据流动态切分为标准的 512 字节小块，无缝兼容本地小包与 Web 大包。
+
+### 2. TTS 语音合成在 Web 模式下死锁
+* **现象**：FastAPI (Uvicorn) 环境下运行 `asyncio.run()` 引发事件循环冲突，导致生成音频时程序卡死，前端一直显示“正在识别”。
+* **修复方案**：重构 `modules/tts.py`，加入环境探测机制。若处于异步事件循环中，则使用 `ThreadPoolExecutor` 将 TTS 任务剥离到独立线程；若处于本地终端模式，则正常运行。
+
+### 3. KWS 唤醒词解析失败 (Cannot find ID for token)
+* **现象**：`sherpa-onnx` 初始化时报错无法识别中文连续词组。
+* **修复方案**：WenetSpeech 模型的 `tokens.txt` 为拼音级词典。必须将 `keywords.txt` 配置严格改为 `拼音(带空格) @ 输出中文字符` 的格式。
+  * ❌ 错误格式：`小艺小艺 @ x iǎo y ì x iǎo y ì`
+  * ✅ 正确格式：`x iǎo y ì x iǎo y ì @小艺小艺`
+
+### 4. 硬盘爆满与无声音反馈
+* **现象**：`temp_audio/` 目录下产生大量 MP3 堆积，且 Web 前端无声音播放。
+* **修复方案**：确保服务端在调用 TTS 后，以 `rb` (二进制) 模式读取文件，并通过 `websocket.send_bytes()` 推送给前端浏览器，**推送完成后必须立刻执行 `os.remove()` 清理临时文件**。
