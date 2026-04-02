@@ -21,7 +21,7 @@ class KWSModule:
         if not os.path.exists(self.keywords_file):
             with open(self.keywords_file, "w", encoding="utf-8") as f:
                 # 默认唤醒词：小艺小艺。拼音之间必须有空格，@ 符号后面跟中文字符
-                f.write("x iǎo y ì x iǎo y ì @小艺小艺\n")
+                f.write("x iǎo y ì x iǎo y ì\n")
             logger.info(f"已自动生成唤醒词配置文件: {self.keywords_file}")
 
     def _check_and_download_model(self):
