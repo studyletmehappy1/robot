@@ -15,3 +15,7 @@ uvicorn
 websockets
 python-multipart
 aiohttp
+sherpa-onnx
+# 模型下载支持
+huggingface_hub
+modelscope

@@ -18,7 +18,7 @@ app = FastAPI()
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 os.makedirs(STATIC_DIR, exist_ok=True)
 
-# 初始化机器人 (禁用本地 I/O，仅使用其逻辑模块)
+# 初始化机器人 (不启动录音循环，仅用于逻辑处理)
 api_key = "sk-ZqcUw3Viws3jvOOn6748A3C3719b4c18Ae26D1D7E1B87299"
 robot = Robot(api_key=api_key)
 
@@ -35,13 +35,17 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     logger.info("WebSocket 连接已建立")
     
-    # 每个连接维护自己的状态
+    # 每个连接维护自己的状态机
     state = {
+        "status": "SLEEP", # SLEEP, AWAKE, PROCESSING
         "vad_start": False,
         "silence_chunks": 0,
         "streaming_text": "",
         "chat_lock": False
     }
+    
+    # 初始状态同步给前端
+    await websocket.send_json({"type": "status", "content": "已进入休眠，等待唤醒..."})
     
     # 重置 ASR 缓存
     robot.asr.reset_cache()
@@ -55,27 +59,36 @@ async def websocket_endpoint(websocket: WebSocket):
                 if data.get("type") == "text":
                     user_text = data.get("content", "")
                     logger.info(f"收到网页端文本输入: {user_text}")
-                    await handle_chat(websocket, user_text, state)
+                    # 文本输入强制唤醒并处理
+                    state["status"] = "PROCESSING"
+                    await websocket.send_json({"type": "status", "content": "正在思考中..."})
+                    asyncio.create_task(handle_chat(websocket, user_text, state))
             
             elif "bytes" in message:
                 audio_chunk = message["bytes"]
-                # 流式 VAD 检测
-                has_speech = robot.vad.is_speech(audio_chunk)
                 
-                if has_speech:
-                    if not state["vad_start"]:
-                        logger.info("Web 端检测到人声开始...")
-                        state["vad_start"] = True
+                if state["status"] == "SLEEP":
+                    # KWS 监听
+                    keyword = robot.kws.detect(audio_chunk)
+                    if keyword:
+                        logger.info(f"Web 端检测到唤醒词: {keyword}")
+                        state["status"] = "AWAKE"
                         state["streaming_text"] = ""
+                        state["silence_chunks"] = 0
                         robot.asr.reset_cache()
+                        await websocket.send_json({"type": "status", "content": "已唤醒，正在倾听..."})
+                        
+                elif state["status"] == "AWAKE":
+                    # VAD + ASR 监听
+                    has_speech = robot.vad.is_speech(audio_chunk)
                     
-                    state["silence_chunks"] = 0
-                    text_chunk = robot.asr.transcribe_chunk(audio_chunk, is_final=False)
-                    if text_chunk:
-                        state["streaming_text"] += text_chunk
-                        await websocket.send_json({"type": "asr_chunk", "content": state["streaming_text"]})
-                else:
-                    if state["vad_start"]:
+                    if has_speech:
+                        state["silence_chunks"] = 0
+                        text_chunk = robot.asr.transcribe_chunk(audio_chunk, is_final=False)
+                        if text_chunk:
+                            state["streaming_text"] += text_chunk
+                            await websocket.send_json({"type": "asr_chunk", "content": state["streaming_text"]})
+                    else:
                         state["silence_chunks"] += 1
                         text_chunk = robot.asr.transcribe_chunk(audio_chunk, is_final=False)
                         if text_chunk:
@@ -89,12 +102,17 @@ async def websocket_endpoint(websocket: WebSocket):
                                 state["streaming_text"] += final_chunk
                             
                             final_text = state["streaming_text"]
-                            state["vad_start"] = False
+                            state["status"] = "PROCESSING"
                             state["silence_chunks"] = 0
                             
                             if final_text.strip():
                                 await websocket.send_json({"type": "asr_final", "content": final_text})
+                                await websocket.send_json({"type": "status", "content": "正在思考中..."})
                                 asyncio.create_task(handle_chat(websocket, final_text, state))
+                            else:
+                                # 没听清指令，回休眠
+                                state["status"] = "SLEEP"
+                                await websocket.send_json({"type": "status", "content": "已进入休眠，等待唤醒..."})
 
     except WebSocketDisconnect:
         logger.info("WebSocket 连接已断开")
@@ -103,9 +121,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 async def handle_chat(websocket, text, state):
     """处理对话逻辑并发送 TTS"""
-    if state["chat_lock"]:
-        return
-    
+    if state["chat_lock"]: return
     state["chat_lock"] = True
     try:
         robot.messages[0] = {"role": "system", "content": robot.llm.create_system_prompt()}
@@ -114,7 +130,6 @@ async def handle_chat(websocket, text, state):
         if len(robot.messages) > 21:
             robot.messages = [robot.messages[0]] + robot.messages[-20:]
             
-        logger.info(f"正在为 Web 端请求 LLM: {text}")
         response_text = ""
         sentence_buffer = ""
         
@@ -145,8 +160,14 @@ async def handle_chat(websocket, text, state):
             
         await websocket.send_json({"type": "done"})
         
+        # 处理完毕，回休眠
+        state["status"] = "SLEEP"
+        await websocket.send_json({"type": "status", "content": "已进入休眠，等待唤醒..."})
+        
     except Exception as e:
         logger.error(f"Web 对话处理出错: {e}")
+        state["status"] = "SLEEP"
+        await websocket.send_json({"type": "status", "content": "已进入休眠，等待唤醒..."})
     finally:
         state["chat_lock"] = False
 
