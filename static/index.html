@@ -64,34 +64,46 @@
         // 【新增】音频播放队列相关变量
         let audioQueue = [];
         let isAudioPlaying = false;
+        let pendingText = ""; // 【新增】用于暂存刚收到的文字
 
         // 【新增】顺序播放队列中音频的函数
-        function playNextAudio() {
-            if (audioQueue.length === 0) {
-                isAudioPlaying = false;
-                return;
-            }
-            isAudioPlaying = true;
-            const audioUrl = audioQueue.shift();
-            const audio = new Audio(audioUrl);
-            
-            audio.onended = playNextAudio;
-            audio.onerror = playNextAudio; 
-            
-            audio.play().catch(e => {
-                console.error("音频播放失败:", e);
-                playNextAudio();
-            });
-        }
+       function playNextAudio() {
+        if (audioQueue.length === 0) {
+        isAudioPlaying = false;
+        return;
+         }
 
-        function initWebSocket() {
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-            
-            ws.onopen = () => {
-                status.innerText = "WebSocket 已连接 (就绪)";
-                status.style.color = "#007bff";
-            };
+        isAudioPlaying = true;
+         const item = audioQueue.shift();
+
+         // 【核心同步逻辑】：开始播放音频的这一刻，才把对应的文字显示在界面上
+         if (!currentRobotMessage) {
+        currentRobotMessage = document.createElement('div');
+        currentRobotMessage.className = 'message robot-message';
+        currentRobotMessage.innerHTML = '<strong>管家:</strong> ';
+        chatMessages.appendChild(currentRobotMessage);
+     }
+        currentRobotMessage.innerHTML += item.text;
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+
+            const audio = new Audio(item.url);
+            audio.onended = playNextAudio;
+            audio.onerror = playNextAudio;
+            audio.play().catch(e => {
+            console.error("音频播放失败:", e);
+            playNextAudio();
+     });
+}
+
+     function initWebSocket() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+
+    ws.onopen = () => {
+        status.innerText = "WebSocket 已连接 (就绪)";
+        status.style.color = "#007bff";
+    };
+}
             
             ws.onclose = () => {
                 status.innerText = "WebSocket 已断开，请刷新页面";
@@ -100,42 +112,49 @@
             };
 
             ws.onmessage = async (event) => {
-                if (typeof event.data === 'string') {
-                    const data = JSON.parse(event.data);
-                    
-                    if (data.type === 'status') {
-                        status.innerText = data.content;
-                    } else if (data.type === 'asr_chunk') {
-                        streamingAsr.innerText = "正在识别: " + data.content;
-                    } else if (data.type === 'asr_final') {
-                        streamingAsr.innerText = "";
-                        addUserMessage(data.content);
-                    } else if (data.type === 'text_chunk') {
-                        if (!currentRobotMessage) {
-                            currentRobotMessage = document.createElement('div');
-                            currentRobotMessage.className = 'message robot-message';
-                            currentRobotMessage.innerHTML = '<strong>管家:</strong> ';
-                            chatMessages.appendChild(currentRobotMessage);
-                        }
-                        currentRobotMessage.innerHTML += data.content;
-                        chatMessages.scrollTop = chatMessages.scrollHeight;
-                    } else if (data.type === 'done') {
-                        currentRobotMessage = null;
-                        sendBtn.disabled = false;
-                    }
-                } else {
-                    // 【核心修复】将收到的二进制音频存入队列，而不是直接播放
-                    const audioBlob = new Blob([event.data], { type: 'audio/mpeg' });
-                    const audioUrl = URL.createObjectURL(audioBlob);
-                    
-                    audioQueue.push(audioUrl);
-                    if (!isAudioPlaying) {
-                        playNextAudio();
-                    }
-                }
-            };
+    if (typeof event.data === "string") {
+        const data = JSON.parse(event.data);
+
+        if (data.type === "status") {
+            status.innerText = data.content;
+
+        } else if (data.type === "asr_chunk") {
+            streamingAsr.innerText = "正在识别: " + data.content;
+
+        } else if (data.type === "asr_final") {
+            streamingAsr.innerText = "";
+            addUserMessage(data.content);
+
+        } else if (data.type === "sentence_text") {
+            // 【核心同步逻辑】
+            // 收到文字时先暂存，不立即显示
+            pendingText = data.content;
+
+        } else if (data.type === "done") {
+            currentRobotMessage = null;
+            sendBtn.disabled = false;
         }
 
+    } else {
+        // 收到二进制音频（TTS）
+        const audioBlob = new Blob([event.data], { type: "audio/mpeg" });
+        const audioUrl = URL.createObjectURL(audioBlob);
+
+        // 和刚刚暂存的文字一起加入播放队列
+        audioQueue.push({
+            url: audioUrl,
+            text: pendingText
+        });
+
+        // 清空暂存
+        pendingText = "";
+
+        // 如果当前没有播放音频，就开始播放
+        if (!isAudioPlaying) {
+            playNextAudio();
+        }
+    }
+};
         initWebSocket();
 
         recordBtn.onclick = async () => {

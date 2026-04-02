@@ -133,36 +133,55 @@ async def handle_chat(websocket, text, state):
         response_text = ""
         sentence_buffer = ""
         
+        # 【新增】创建一个音频处理队列，保证顺序
+        audio_task_queue = asyncio.Queue()
+
+        # 【新增】专门处理音频的后台工人
+        async def audio_worker():
+            while True:
+                segment = await audio_task_queue.get()
+                if segment is None: # 收到结束信号
+                    break
+                
+                # 生成语音
+                audio_file = await robot.tts.to_tts_async(segment)
+                if audio_file:
+                    # 先发带有文字的 JSON
+                    await websocket.send_json({"type": "sentence_text", "content": segment})
+                    # 紧接着发送二进制音频
+                    with open(audio_file, "rb") as f:
+                        await websocket.send_bytes(f.read())
+                    robot.tts.clean_up(audio_file)
+                audio_task_queue.task_done()
+
+        # 启动后台工人
+        worker_task = asyncio.create_task(audio_worker())
+        
+        # 遍历 LLM 流式输出
         for chunk in robot.llm.call_deepseek_api(robot.messages):
             response_text += chunk
             sentence_buffer += chunk
-            await websocket.send_json({"type": "text_chunk", "content": chunk})
             
-            if any(p in chunk for p in ["。", "？", "！", ".", "?", "!"]):
+            # 遇到标点符号，截断句子并放入队列
+            if any(p in chunk for p in ["。", "？", "！", ".", "?", "!", "，", ",", "、"]):
                 segment = sentence_buffer.strip()
                 if segment:
-                    # 【核心修复1】替换为异步的 TTS 调用
-                    audio_file = await robot.tts.to_tts_async(segment)
-                    if audio_file:
-                        with open(audio_file, "rb") as f:
-                            await websocket.send_bytes(f.read())
-                        robot.tts.clean_up(audio_file)
+                    await audio_task_queue.put(segment)
                 sentence_buffer = ""
         
+        # 处理最后剩的一点尾巴
         if sentence_buffer.strip():
-            # 【核心修复2】替换为异步的 TTS 调用
-            audio_file = await robot.tts.to_tts_async(sentence_buffer.strip())
-            if audio_file:
-                with open(audio_file, "rb") as f:
-                    await websocket.send_bytes(f.read())
-                robot.tts.clean_up(audio_file)
+            await audio_task_queue.put(sentence_buffer.strip())
                 
+        # 告诉后台工人不用等了，结束吧
+        await audio_task_queue.put(None)
+        await worker_task # 等待所有音频发送完毕
+        
         if response_text:
             robot.messages.append({"role": "assistant", "content": response_text})
             
         await websocket.send_json({"type": "done"})
         
-        # 处理完毕，回休眠
         state["status"] = "SLEEP"
         await websocket.send_json({"type": "status", "content": "已进入休眠，等待唤醒..."})
         
