@@ -117,43 +117,81 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.error(f"WS 异常: {e}")
 
 async def handle_chat(websocket, text, state):
-    """对话逻辑与 TTS 同步下发"""
-    if state["chat_lock"]: return
+    """对话逻辑与 TTS 同步下发 (Edge-TTS 极限压榨版：首句破冰策略)"""
+    if state["chat_lock"]:
+        return
     state["chat_lock"] = True
+
     try:
         # 准备对话
         robot.messages[0] = {"role": "system", "content": robot.llm.create_system_prompt()}
         robot.messages.append({"role": "user", "content": text})
-        
+
         # 截断历史记录
         if len(robot.messages) > 21:
             robot.messages = [robot.messages[0]] + robot.messages[-20:]
-            
-        # 1. 完整获取 LLM 回复
+
         response_text = ""
+        sentence_buffer = ""
+        is_first_sentence = True  # 首句标志位
+
+        # 创建音频处理队列
+        audio_task_queue = asyncio.Queue()
+
+        # 后台音频消费工人：按顺序拿句子去请求 Edge-TTS
+        async def audio_worker():
+            while True:
+                segment = await audio_task_queue.get()
+                if segment is None:  # 收到结束信号
+                    break
+
+                audio_file = await robot.tts.to_tts_async(segment)
+                if audio_file:
+                    await websocket.send_json({"type": "sentence_text", "content": segment})
+                    with open(audio_file, "rb") as f:
+                        await websocket.send_bytes(f.read())
+                    robot.tts.clean_up(audio_file)
+                audio_task_queue.task_done()
+
+        # 启动后台音频工人
+        worker_task = asyncio.create_task(audio_worker())
+
+        # 遍历 LLM 流式输出
         for chunk in robot.llm.call_deepseek_api(robot.messages):
             response_text += chunk
-            
-        if response_text.strip():
-            # 2. 合成完整音频
-            audio_file = await robot.tts.to_tts_async(response_text.strip())
-            
-            if audio_file:
-                # 3. 字音同步：先发文字 JSON，再发二进制音频
-                await websocket.send_json({"type": "sentence_text", "content": response_text.strip()})
-                with open(audio_file, "rb") as f:
-                    await websocket.send_bytes(f.read())
-                robot.tts.clean_up(audio_file)
-                
-            robot.messages.append({"role": "assistant", "content": response_text})
-            
+            sentence_buffer += chunk
+
+            # 【核心加速逻辑】：动态标点截断
+            # 默认只用句号、问号、叹号，保证长段落连贯
+            cut_punctuations = ["。", "？", "！", ".", "?", "!"]
+
+            # 如果是第一句话，把逗号也加进去！抢时间让机器人先开口！
+            if is_first_sentence:
+                cut_punctuations.extend(["，", ","])
+
+            if any(p in chunk for p in cut_punctuations):
+                segment = sentence_buffer.strip()
+                if segment:
+                    await audio_task_queue.put(segment)
+                    is_first_sentence = False  # 破冰完成，后续恢复句号截断
+                sentence_buffer = ""
+
+        # 处理最后剩下的一点尾巴
+        if sentence_buffer.strip():
+            await audio_task_queue.put(sentence_buffer.strip())
+
+        # 告诉工人结束并等待
+        await audio_task_queue.put(None)
+        await worker_task
+
+        robot.messages.append({"role": "assistant", "content": response_text})
         await websocket.send_json({"type": "done"})
-        
-        # 关键点：重置 KWS 记忆，防止二次唤醒失败
+
+        # 处理完毕，回休眠
         robot.kws.reset()
         state["status"] = "SLEEP"
         await websocket.send_json({"type": "status", "content": "已进入休眠，等待唤醒..."})
-        
+
     except Exception as e:
         logger.error(f"对话处理失败: {e}")
         robot.kws.reset()

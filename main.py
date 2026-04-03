@@ -13,7 +13,7 @@ logging.basicConfig(
 
 def main():
     # 替换为您在仓库中已经写好的 DeepSeek API Key
-    api_key = "sk-ZqcUw3Viws3jvOOn6748A3C3719b4c18Ae26D1D7E1B87299"
+    api_key = "sk-fbf6eaff0cfc46338de931f747cca79d"
     
     print("=== 正在启动智能语音助手 (参考 bailing 架构) ===")
     print("核心组件: FunASR, Silero-VAD, DeepSeek-V3.2, Edge-TTS")
