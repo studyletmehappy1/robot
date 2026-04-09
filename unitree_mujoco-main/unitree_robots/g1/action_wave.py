@@ -67,14 +67,17 @@ RIGHT_ARM_NEUTRAL = {
     "right_wrist_yaw_joint": 0.0,
 }
 
-# 右臂抬手准备姿态。大臂外展并微微向前，肘部约 90 度。
+# 右臂抬手准备姿态。更接近“正常成年人打招呼”：
+# 肩前举把肘带到身体斜前方，肘部弯曲让小臂朝上。
+# 注意：G1 当前 23DOF/29DOF 模型都没有独立的 elbow roll，
+# 因此后续挥手主自由度使用 right_shoulder_yaw_joint 作为最接近的等效旋转自由度。
 RIGHT_ARM_PREP = {
-    "right_shoulder_pitch_joint": 0.38,
-    "right_shoulder_roll_joint": -1.05,
-    "right_shoulder_yaw_joint": 0.10,
-    "right_elbow_joint": 1.55,
-    "right_wrist_roll_joint": 0.0,
-    "right_wrist_pitch_joint": 0.0,
+    "right_shoulder_pitch_joint": 0.92,
+    "right_shoulder_roll_joint": -0.32,
+    "right_shoulder_yaw_joint": 0.12,
+    "right_elbow_joint": 1.48,
+    "right_wrist_roll_joint": 0.10,
+    "right_wrist_pitch_joint": 0.18,
     "right_wrist_yaw_joint": 0.0,
 }
 
@@ -163,10 +166,16 @@ def get_wave_target_pose(t):
         phase = 2.0 * math.pi * WAVE_FREQUENCY * tau
 
         wave_pose = dict(prep_pose)
-        # 保持大臂相对稳定，挥手主通道由肩内外旋完成。
-        wave_pose["right_shoulder_yaw_joint"] = RIGHT_ARM_PREP["right_shoulder_yaw_joint"] + 0.40 * math.sin(phase)
-        # 肘部只做轻微协同，让动作更自然，不出现整条胳膊甩动。
-        wave_pose["right_elbow_joint"] = RIGHT_ARM_PREP["right_elbow_joint"] + 0.10 * math.sin(phase)
+        # 机械约束说明：
+        # 当前 G1 模型没有独立 elbow roll，所以用 shoulder_yaw 作为最接近的
+        # “上臂/前臂横向旋转自由度”，肩 pitch/roll 与肘 pitch 在挥手阶段保持稳定。
+        wave_signal = float(np.sin(phase))
+        wave_pose["right_shoulder_yaw_joint"] = RIGHT_ARM_PREP["right_shoulder_yaw_joint"] + 0.34 * wave_signal
+        wave_pose["right_shoulder_pitch_joint"] = RIGHT_ARM_PREP["right_shoulder_pitch_joint"]
+        wave_pose["right_shoulder_roll_joint"] = RIGHT_ARM_PREP["right_shoulder_roll_joint"]
+        wave_pose["right_elbow_joint"] = RIGHT_ARM_PREP["right_elbow_joint"]
+        # 手腕只给一个很小的随动，帮助掌面更像在朝外打招呼，但不作为主动力源。
+        wave_pose["right_wrist_roll_joint"] = RIGHT_ARM_PREP["right_wrist_roll_joint"] + 0.08 * wave_signal
         return wave_pose
 
     if t <= TOTAL_DURATION:
