@@ -9,12 +9,22 @@ import numpy as np
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_SCENE = BASE_DIR / "scene.xml"
+DEFAULT_SCENE = BASE_DIR / "scene_23dof.xml"
 
-# 用一组稳定的关节目标把机器人维持在站立姿态。
-# 这里的 actuator 是 torque motor，不是 position motor，
-# 所以必须自己做一层 PD 控制，不能把 data.ctrl 当作目标角直接写。
-STAND_TARGETS = {
+PREP_DURATION = 1.2
+WAVE_FREQUENCY = 1.5
+WAVE_CYCLES = 3
+WAVE_DURATION = WAVE_CYCLES / WAVE_FREQUENCY
+RETURN_DURATION = 1.2
+TOTAL_DURATION = PREP_DURATION + WAVE_DURATION + RETURN_DURATION
+
+
+def rad_to_deg(value):
+    return value * 180.0 / math.pi
+
+
+# 稳定站立姿态。单位全部是弧度。
+BASE_POSE = {
     "left_hip_pitch_joint": -0.35,
     "left_hip_roll_joint": 0.0,
     "left_hip_yaw_joint": 0.0,
@@ -30,6 +40,13 @@ STAND_TARGETS = {
     "waist_yaw_joint": 0.0,
     "waist_roll_joint": 0.0,
     "waist_pitch_joint": 0.0,
+    "left_shoulder_pitch_joint": 0.20,
+    "left_shoulder_roll_joint": 0.18,
+    "left_shoulder_yaw_joint": 0.0,
+    "left_elbow_joint": 0.35,
+    "left_wrist_roll_joint": 0.0,
+    "left_wrist_pitch_joint": 0.0,
+    "left_wrist_yaw_joint": 0.0,
     "right_shoulder_pitch_joint": 0.20,
     "right_shoulder_roll_joint": -0.18,
     "right_shoulder_yaw_joint": 0.0,
@@ -37,16 +54,28 @@ STAND_TARGETS = {
     "right_wrist_roll_joint": 0.0,
     "right_wrist_pitch_joint": 0.0,
     "right_wrist_yaw_joint": 0.0,
-    "left_wrist_pitch_joint": 0.0,
-    "left_wrist_yaw_joint": 0.0,
 }
 
-ARM_BASE_TARGETS = {
-    "left_shoulder_pitch_joint": 0.25,
-    "left_shoulder_roll_joint": 1.15,
-    "left_shoulder_yaw_joint": 0.18,
-    "left_elbow_joint": 1.40,
-    "left_wrist_roll_joint": 0.0,
+# 右臂自然下垂。
+RIGHT_ARM_NEUTRAL = {
+    "right_shoulder_pitch_joint": 0.20,
+    "right_shoulder_roll_joint": -0.18,
+    "right_shoulder_yaw_joint": 0.0,
+    "right_elbow_joint": 0.35,
+    "right_wrist_roll_joint": 0.0,
+    "right_wrist_pitch_joint": 0.0,
+    "right_wrist_yaw_joint": 0.0,
+}
+
+# 右臂抬手准备姿态。大臂外展并微微向前，肘部约 90 度。
+RIGHT_ARM_PREP = {
+    "right_shoulder_pitch_joint": 0.38,
+    "right_shoulder_roll_joint": -1.05,
+    "right_shoulder_yaw_joint": 0.10,
+    "right_elbow_joint": 1.55,
+    "right_wrist_roll_joint": 0.0,
+    "right_wrist_pitch_joint": 0.0,
+    "right_wrist_yaw_joint": 0.0,
 }
 
 KP = {
@@ -65,13 +94,31 @@ KD = {
 
 
 def joint_group(joint_name):
-    if "hip" in joint_name or "knee" in joint_name or "ankle" in joint_name:
+    if any(name in joint_name for name in ("hip", "knee", "ankle")):
         return "leg"
     if "waist" in joint_name:
         return "waist"
     if "wrist" in joint_name:
         return "wrist"
     return "arm"
+
+
+def clamp01(value):
+    return max(0.0, min(1.0, value))
+
+
+def smoothstep(value):
+    x = clamp01(value)
+    return x * x * (3.0 - 2.0 * x)
+
+
+def interpolate_pose(pose_a, pose_b, alpha):
+    ratio = smoothstep(alpha)
+    keys = set(pose_a) | set(pose_b)
+    return {
+        key: pose_a.get(key, 0.0) + (pose_b.get(key, 0.0) - pose_a.get(key, 0.0)) * ratio
+        for key in keys
+    }
 
 
 def build_joint_handles(model):
@@ -92,31 +139,55 @@ def build_joint_handles(model):
     return handles
 
 
+def build_neutral_pose():
+    pose = dict(BASE_POSE)
+    pose.update(RIGHT_ARM_NEUTRAL)
+    return pose
+
+
+def build_preparation_pose():
+    pose = dict(BASE_POSE)
+    pose.update(RIGHT_ARM_PREP)
+    return pose
+
+
+def get_wave_target_pose(t):
+    neutral_pose = build_neutral_pose()
+    prep_pose = build_preparation_pose()
+
+    if t <= PREP_DURATION:
+        return interpolate_pose(neutral_pose, prep_pose, t / PREP_DURATION)
+
+    if t <= PREP_DURATION + WAVE_DURATION:
+        tau = t - PREP_DURATION
+        phase = 2.0 * math.pi * WAVE_FREQUENCY * tau
+
+        wave_pose = dict(prep_pose)
+        # 保持大臂相对稳定，挥手主通道由肩内外旋完成。
+        wave_pose["right_shoulder_yaw_joint"] = RIGHT_ARM_PREP["right_shoulder_yaw_joint"] + 0.40 * math.sin(phase)
+        # 肘部只做轻微协同，让动作更自然，不出现整条胳膊甩动。
+        wave_pose["right_elbow_joint"] = RIGHT_ARM_PREP["right_elbow_joint"] + 0.10 * math.sin(phase)
+        return wave_pose
+
+    if t <= TOTAL_DURATION:
+        # 恰好 3 个完整周期后，sin 回到 0，因此末态与 prep_pose 一致，可直接平滑回位。
+        tau = t - (PREP_DURATION + WAVE_DURATION)
+        return interpolate_pose(prep_pose, neutral_pose, tau / RETURN_DURATION)
+
+    return neutral_pose
+
+
 def set_initial_pose(data, joint_handles, joint_targets):
     data.qpos[:7] = np.array([0.0, 0.0, 0.78, 1.0, 0.0, 0.0, 0.0], dtype=np.float64)
     data.qvel[:] = 0.0
     data.ctrl[:] = 0.0
     for joint_name, target in joint_targets.items():
-        if joint_name in joint_handles:
-            data.qpos[joint_handles[joint_name]["qpos_adr"]] = target
+        handle = joint_handles.get(joint_name)
+        if handle is not None:
+            data.qpos[handle["qpos_adr"]] = target
 
 
-def compute_wave_targets(sim_time):
-    phase = 2.0 * math.pi * 1.15 * sim_time
-    targets = dict(STAND_TARGETS)
-    targets.update(ARM_BASE_TARGETS)
-
-    # 这里让“挥手”更像常规认知中的招手，而不是上下摆臂：
-    # 大臂先抬起固定，前臂和腕部做小幅周期摆动。
-    targets["left_shoulder_pitch_joint"] = 0.28 + 0.06 * math.sin(phase * 0.5)
-    targets["left_shoulder_roll_joint"] = 1.18
-    targets["left_shoulder_yaw_joint"] = 0.22 + 0.32 * math.sin(phase)
-    targets["left_elbow_joint"] = 1.42 + 0.10 * math.sin(phase + 0.55)
-    targets["left_wrist_roll_joint"] = 0.28 * math.sin(phase)
-    return targets
-
-
-def apply_pd_control(model, data, joint_handles, joint_targets):
+def apply_pd_control(data, joint_handles, joint_targets):
     for joint_name, target in joint_targets.items():
         handle = joint_handles.get(joint_name)
         if handle is None:
@@ -126,60 +197,75 @@ def apply_pd_control(model, data, joint_handles, joint_targets):
         qd = data.qvel[handle["qvel_adr"]]
         group = joint_group(joint_name)
         torque = KP[group] * (target - q) - KD[group] * qd
-        data.ctrl[handle["actuator_id"]] = float(
-            np.clip(torque, handle["ctrl_min"], handle["ctrl_max"])
-        )
+        data.ctrl[handle["actuator_id"]] = float(np.clip(torque, handle["ctrl_min"], handle["ctrl_max"]))
 
 
 def resolve_scene_path(scene_arg):
-    if not scene_arg:
-        return DEFAULT_SCENE
-
-    candidate = Path(scene_arg)
+    candidate = Path(scene_arg) if scene_arg else DEFAULT_SCENE
     if not candidate.is_absolute():
         candidate = BASE_DIR / candidate
     return candidate.resolve()
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="G1 MuJoCo wave demo")
+    parser = argparse.ArgumentParser(description="Unitree G1 natural wave demo for MuJoCo")
     parser.add_argument(
         "--scene",
         default=str(DEFAULT_SCENE),
-        help="要加载的 MuJoCo 场景 XML，可以是 scene.xml / scene_23dof.xml / scene_29dof.xml",
+        help="要加载的 MuJoCo 场景 XML，默认 scene_23dof.xml",
+    )
+    parser.add_argument(
+        "--print-targets",
+        action="store_true",
+        help="打印关键右臂姿态的弧度和角度，方便调参",
     )
     return parser.parse_args()
+
+
+def print_pose_summary(title, pose):
+    print(title)
+    for joint_name in (
+        "right_shoulder_pitch_joint",
+        "right_shoulder_roll_joint",
+        "right_shoulder_yaw_joint",
+        "right_elbow_joint",
+    ):
+        value = pose[joint_name]
+        print(f"  {joint_name}: {value:.3f} rad ({rad_to_deg(value):.1f} deg)")
 
 
 def main():
     args = parse_args()
     scene_path = resolve_scene_path(args.scene)
     print(f"正在加载 G1 场景: {scene_path}")
+
     model = mujoco.MjModel.from_xml_path(str(scene_path))
     data = mujoco.MjData(model)
     joint_handles = build_joint_handles(model)
 
     required_joints = [
-        "left_shoulder_pitch_joint",
-        "left_shoulder_roll_joint",
-        "left_shoulder_yaw_joint",
-        "left_elbow_joint",
-        "left_wrist_roll_joint",
+        "right_shoulder_pitch_joint",
+        "right_shoulder_roll_joint",
+        "right_shoulder_yaw_joint",
+        "right_elbow_joint",
     ]
-    missing_joints = [name for name in required_joints if name not in joint_handles]
+    missing_joints = [joint_name for joint_name in required_joints if joint_name not in joint_handles]
     if missing_joints:
-        raise RuntimeError(f"缺少必要关节，无法执行挥手动作: {missing_joints}")
+        raise RuntimeError(f"缺少必要右臂关节，无法执行挥手动作: {missing_joints}")
 
-    print("已识别控制关节，开始进入站立+挥手控制。")
-    set_initial_pose(data, joint_handles, compute_wave_targets(0.0))
+    if args.print_targets:
+        print_pose_summary("Neutral pose:", build_neutral_pose())
+        print_pose_summary("Preparation pose:", build_preparation_pose())
+
+    initial_pose = get_wave_target_pose(0.0)
+    set_initial_pose(data, joint_handles, initial_pose)
     mujoco.mj_forward(model, data)
 
+    print("开始执行三阶段挥手：Preparation -> Oscillation(3 cycles) -> Return")
     with mujoco.viewer.launch_passive(model, data) as viewer:
-        start = time.perf_counter()
         while viewer.is_running():
-            sim_time = time.perf_counter() - start
-            joint_targets = compute_wave_targets(sim_time)
-            apply_pd_control(model, data, joint_handles, joint_targets)
+            target_pose = get_wave_target_pose(data.time)
+            apply_pd_control(data, joint_handles, target_pose)
             mujoco.mj_step(model, data)
             viewer.sync()
             time.sleep(model.opt.timestep)
