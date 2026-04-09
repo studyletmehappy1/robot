@@ -18,7 +18,7 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs("temp_audio", exist_ok=True)
 
-api_key = "填入api"
+api_key = "sk-ZqcUw3Viws3jvOOn6748A3C3719b4c18Ae26D1D7E1B87299"
 robot = Robot(api_key=api_key)
 
 SENTENCE_CUT_PUNCTUATIONS = ("。", "？", "！", ".", "?", "!", "；", ";")

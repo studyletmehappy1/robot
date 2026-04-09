@@ -60,11 +60,35 @@
         let processor;
         let isRecording = false;
         let currentRobotMessage = null;
+        let currentRobotTextSpan = null;
+        let isRobotReplyStreaming = false;
         
         // 【新增】音频播放队列相关变量
         let audioQueue = [];
         let isAudioPlaying = false;
-        let pendingText = ""; // 【新增】用于暂存刚收到的文字
+
+        function appendRobotChunk(text) {
+            if (!text) return;
+
+            if (!isRobotReplyStreaming || !currentRobotMessage || !currentRobotTextSpan) {
+                currentRobotMessage = document.createElement('div');
+                currentRobotMessage.className = 'message robot-message';
+
+                const label = document.createElement('strong');
+                label.innerText = '管家:';
+                currentRobotMessage.appendChild(label);
+                currentRobotMessage.appendChild(document.createTextNode(' '));
+
+                currentRobotTextSpan = document.createElement('span');
+                currentRobotMessage.appendChild(currentRobotTextSpan);
+
+                chatMessages.appendChild(currentRobotMessage);
+                isRobotReplyStreaming = true;
+            }
+
+            currentRobotTextSpan.textContent += text;
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
 
         // 【新增】顺序播放队列中音频的函数
         function playNextAudio() {
@@ -75,20 +99,6 @@
 
             isAudioPlaying = true;
             const item = audioQueue.shift();
-
-            // 【核心同步逻辑】：开始播放音频的这一刻，才把对应的文字显示在界面上
-            if (!currentRobotMessage) {
-                currentRobotMessage = document.createElement('div');
-                currentRobotMessage.className = 'message robot-message';
-                currentRobotMessage.innerHTML = '<strong>管家:</strong> ';
-                chatMessages.appendChild(currentRobotMessage);
-            }
-            
-            // 确保文字不为空时才追加
-            if (item.text) {
-                currentRobotMessage.innerHTML += item.text;
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-            }
 
             const audio = new Audio(item.url);
             audio.onended = playNextAudio;
@@ -129,11 +139,12 @@
                         addUserMessage(data.content);
 
                     } else if (data.type === "sentence_text") {
-                        // 【核心同步逻辑】收到文字时先暂存，不立即显示
-                        pendingText = data.content;
+                        appendRobotChunk(data.content);
 
                     } else if (data.type === "done") {
+                        isRobotReplyStreaming = false;
                         currentRobotMessage = null;
+                        currentRobotTextSpan = null;
                         sendBtn.disabled = false;
                     }
 
@@ -142,14 +153,10 @@
                     const audioBlob = new Blob([event.data], { type: "audio/mpeg" });
                     const audioUrl = URL.createObjectURL(audioBlob);
 
-                    // 和刚刚暂存的文字一起加入播放队列
+                    // 二进制音频只进入播放队列，不再负责文本渲染
                     audioQueue.push({
-                        url: audioUrl,
-                        text: pendingText
+                        url: audioUrl
                     });
-
-                    // 清空暂存
-                    pendingText = "";
 
                     // 如果当前没有播放音频，就开始播放
                     if (!isAudioPlaying) {
