@@ -3,6 +3,11 @@ import queue
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
+from modules.action_dispatcher import (
+    dispatch_actions,
+    filter_allowed_actions,
+    parse_llm_actions,
+)
 from modules.asr import ASRModule
 from modules.kws import KWSModule
 from modules.llm import LLMModule
@@ -51,14 +56,14 @@ class Robot:
     def _tts_worker(self):
         while not self.stop_event.is_set():
             try:
-                future, action = self.tts_queue.get(timeout=1)
+                future, actions = self.tts_queue.get(timeout=1)
                 audio_results = future.result() or []
                 for _, audio_file in audio_results:
                     if audio_file:
                         self.player.play(audio_file)
                         self.tts.clean_up(audio_file)
-                if action:
-                    self.dispatch_action(action)
+                if actions:
+                    dispatch_actions(actions)
             except queue.Empty:
                 continue
             except Exception as exc:
@@ -73,17 +78,16 @@ class Robot:
             punctuations.extend(FIRST_SENTENCE_EXTRA_PUNCTUATIONS)
         return any(punctuation in chunk for punctuation in punctuations)
 
-    def _queue_tts(self, text, action="无动作"):
+    def _queue_tts(self, text, actions=None):
         if not text:
             return
         future = self.executor.submit(self.tts.to_tts_many, text)
-        action_value = action if action and action != "无动作" else None
-        self.tts_queue.put((future, action_value))
+        self.tts_queue.put((future, actions or []))
 
     def dispatch_action(self, action):
         if not action or action == "无动作":
             return
-        logger.info("动作占位分发: %s", action)
+        dispatch_actions([action])
 
     def interrupt(self):
         if self.player.is_playing() or self.chat_lock:
@@ -135,33 +139,36 @@ class Robot:
 
                     segment = sentence_buffer.strip()
                     if segment:
-                        reply_text, action = self.llm.extract_reply_and_action(segment)
+                        reply_text, actions = parse_llm_actions(segment)
+                        filtered_actions = filter_allowed_actions(actions, user_text=text, clean_text=reply_text)
                         if reply_text:
-                            self._queue_tts(reply_text, action)
+                            self._queue_tts(reply_text, filtered_actions)
                             is_first_sentence = False
-                            if action != "无动作":
+                            if filtered_actions:
                                 action_queued = True
-                        elif action != "无动作":
-                            self.dispatch_action(action)
+                        elif filtered_actions:
+                            dispatch_actions(filtered_actions)
                             action_queued = True
                     sentence_buffer = ""
 
             if sentence_buffer.strip() and self.chat_lock:
-                reply_text, action = self.llm.extract_reply_and_action(sentence_buffer.strip())
+                reply_text, actions = parse_llm_actions(sentence_buffer.strip())
+                filtered_actions = filter_allowed_actions(actions, user_text=text, clean_text=reply_text)
                 if reply_text:
-                    self._queue_tts(reply_text, action)
-                    if action != "无动作":
+                    self._queue_tts(reply_text, filtered_actions)
+                    if filtered_actions:
                         action_queued = True
-                elif action != "无动作":
-                    self.dispatch_action(action)
+                elif filtered_actions:
+                    dispatch_actions(filtered_actions)
                     action_queued = True
 
-            clean_response, final_action = self.llm.extract_reply_and_action(response_text)
+            clean_response, final_actions = parse_llm_actions(response_text)
             if clean_response:
                 self.messages.append({"role": "assistant", "content": clean_response})
 
-            if final_action != "无动作" and not action_queued:
-                self.dispatch_action(final_action)
+            filtered_final_actions = filter_allowed_actions(final_actions, user_text=text, clean_text=clean_response)
+            if filtered_final_actions and not action_queued:
+                dispatch_actions(filtered_final_actions)
         except Exception as exc:
             logger.error("对话处理出错: %s", exc)
         finally:

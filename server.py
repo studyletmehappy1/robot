@@ -7,6 +7,11 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 
+from modules.action_dispatcher import (
+    dispatch_actions,
+    filter_allowed_actions,
+    parse_llm_actions,
+)
 from robot import Robot
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -145,7 +150,7 @@ async def handle_chat(websocket, text, state):
                     if item is None:
                         return
 
-                    segment, action = item
+                    segment, actions = item
                     audio_results = await robot.tts.to_tts_many_async(segment)
                     for chunk_text, audio_file in audio_results:
                         await websocket.send_json({"type": "sentence_text", "content": chunk_text})
@@ -153,9 +158,10 @@ async def handle_chat(websocket, text, state):
                             await websocket.send_bytes(file.read())
                         robot.tts.clean_up(audio_file)
 
-                    if action and action != "无动作":
-                        robot.dispatch_action(action)
-                        await websocket.send_json({"type": "action", "content": action})
+                    if actions:
+                        executed_actions = dispatch_actions(actions)
+                        for action_name in executed_actions:
+                            await websocket.send_json({"type": "action", "content": action_name})
                 finally:
                     audio_task_queue.task_done()
 
@@ -171,39 +177,45 @@ async def handle_chat(websocket, text, state):
 
                 segment = sentence_buffer.strip()
                 if segment:
-                    reply_text, action = robot.llm.extract_reply_and_action(segment)
+                    reply_text, actions = parse_llm_actions(segment)
+                    filtered_actions = filter_allowed_actions(actions, user_text=text, clean_text=reply_text)
                     if reply_text:
-                        await audio_task_queue.put((reply_text, action))
+                        await audio_task_queue.put((reply_text, filtered_actions))
                         is_first_sentence = False
-                        if action != "无动作":
+                        if filtered_actions:
                             action_sent = True
-                    elif action != "无动作":
-                        robot.dispatch_action(action)
-                        await websocket.send_json({"type": "action", "content": action})
+                    elif filtered_actions:
+                        executed_actions = dispatch_actions(filtered_actions)
+                        for action_name in executed_actions:
+                            await websocket.send_json({"type": "action", "content": action_name})
                         action_sent = True
                 sentence_buffer = ""
 
         if sentence_buffer.strip():
-            reply_text, action = robot.llm.extract_reply_and_action(sentence_buffer.strip())
+            reply_text, actions = parse_llm_actions(sentence_buffer.strip())
+            filtered_actions = filter_allowed_actions(actions, user_text=text, clean_text=reply_text)
             if reply_text:
-                await audio_task_queue.put((reply_text, action))
-                if action != "无动作":
+                await audio_task_queue.put((reply_text, filtered_actions))
+                if filtered_actions:
                     action_sent = True
-            elif action != "无动作":
-                robot.dispatch_action(action)
-                await websocket.send_json({"type": "action", "content": action})
+            elif filtered_actions:
+                executed_actions = dispatch_actions(filtered_actions)
+                for action_name in executed_actions:
+                    await websocket.send_json({"type": "action", "content": action_name})
                 action_sent = True
 
         await audio_task_queue.put(None)
         await worker_task
 
-        clean_response, final_action = robot.llm.extract_reply_and_action(response_text)
+        clean_response, final_actions = parse_llm_actions(response_text)
         if clean_response:
             robot.messages.append({"role": "assistant", "content": clean_response})
 
-        if final_action != "无动作" and not action_sent:
-            robot.dispatch_action(final_action)
-            await websocket.send_json({"type": "action", "content": final_action})
+        filtered_final_actions = filter_allowed_actions(final_actions, user_text=text, clean_text=clean_response)
+        if filtered_final_actions and not action_sent:
+            executed_actions = dispatch_actions(filtered_final_actions)
+            for action_name in executed_actions:
+                await websocket.send_json({"type": "action", "content": action_name})
 
         await websocket.send_json({"type": "done"})
         robot.kws.reset()

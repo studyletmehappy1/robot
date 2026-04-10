@@ -4,6 +4,7 @@ import logging
 import re
 
 import requests
+from modules.action_dispatcher import parse_llm_actions
 
 logger = logging.getLogger(__name__)
 
@@ -99,25 +100,18 @@ class LLMModule:
             f"{time_info}\n"
             f"{weather_info}\n"
             "输出规则如下：\n"
-            "1. 每次回复都必须严格使用“自然语言回复(动作指令)”这一种格式。\n"
+            "1. 每次回复都必须使用“自然语言回复 + 动作括号”的格式。\n"
             "2. 自然语言回复只用简洁、清晰、适合语音播报的中文口语，不要 Markdown，不要 Emoji。\n"
-            "3. 动作指令必须放在整句最后一对括号里，例如：你好，今天天气不错。(挥手1)\n"
-            "4. 如果当前不需要动作，必须输出：(无动作)\n"
-            "5. 不要输出多个动作括号，不要解释格式，不要附加标签。\n"
-            "6. 如果被问到时间或天气，优先参考上面的实时信息。"
+            "3. 当前只允许输出两个动作代号：(挥手1) 或 (无动作)。\n"
+            "4. 只有在打招呼、迎宾、欢迎来访、开场寒暄等社交场景才允许输出(挥手1)。\n"
+            "5. 在解释知识、比较概念、查询信息、天气时间、百科问答等场景，一律输出(无动作)。\n"
+            "6. 严禁输出任何未定义的括号内容，例如(解释区别手势)、(点头说明)、(配合回答动作)。\n"
+            "7. 如果被问到时间或天气，优先参考上面的实时信息。"
         )
 
     def extract_reply_and_action(self, text):
-        cleaned = (text or "").strip()
-        if not cleaned:
-            return "", "无动作"
-
-        match = self.ACTION_PATTERN.match(cleaned)
-        if not match:
-            return cleaned, "无动作"
-
-        reply = match.group("reply").strip()
-        action = match.group("action").strip() or "无动作"
+        reply, action_list = parse_llm_actions(text)
+        action = action_list[0] if action_list else "无动作"
         return reply, action
 
     def call_deepseek_api(self, messages, stream=True):
