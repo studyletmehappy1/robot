@@ -11,11 +11,11 @@ import numpy as np
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_SCENE = BASE_DIR / "scene_23dof.xml"
 
-PREP_DURATION = 1.2
+PREP_DURATION = 1.35
 WAVE_FREQUENCY = 1.5
 WAVE_CYCLES = 3
 WAVE_DURATION = WAVE_CYCLES / WAVE_FREQUENCY
-RETURN_DURATION = 1.2
+RETURN_DURATION = 1.35
 TOTAL_DURATION = PREP_DURATION + WAVE_DURATION + RETURN_DURATION
 
 
@@ -67,17 +67,18 @@ RIGHT_ARM_NEUTRAL = {
     "right_wrist_yaw_joint": 0.0,
 }
 
-# 右臂抬手准备姿态。更接近“正常成年人打招呼”：
-# 肩前举把肘带到身体斜前方，肘部弯曲让小臂朝上。
+# 右臂抬手准备姿态。目标是“前举招手”，不是侧平举摆臂。
+# 结合当前用户反馈，shoulder_pitch 的正方向会把手臂带向后方，
+# 因此前举动作需要使用负值把肘部带到身体斜前方。
 # 注意：G1 当前 23DOF/29DOF 模型都没有独立的 elbow roll，
 # 因此后续挥手主自由度使用 right_shoulder_yaw_joint 作为最接近的等效旋转自由度。
 RIGHT_ARM_PREP = {
-    "right_shoulder_pitch_joint": 0.92,
-    "right_shoulder_roll_joint": -0.32,
-    "right_shoulder_yaw_joint": 0.12,
-    "right_elbow_joint": 1.48,
-    "right_wrist_roll_joint": 0.10,
-    "right_wrist_pitch_joint": 0.18,
+    "right_shoulder_pitch_joint": -0.68,
+    "right_shoulder_roll_joint": -0.24,
+    "right_shoulder_yaw_joint": -0.08,
+    "right_elbow_joint": 1.52,
+    "right_wrist_roll_joint": 0.42,
+    "right_wrist_pitch_joint": -0.08,
     "right_wrist_yaw_joint": 0.0,
 }
 
@@ -154,6 +155,10 @@ def build_preparation_pose():
     return pose
 
 
+def build_wave_center_pose():
+    return build_preparation_pose()
+
+
 def get_wave_target_pose(t):
     neutral_pose = build_neutral_pose()
     prep_pose = build_preparation_pose()
@@ -168,14 +173,17 @@ def get_wave_target_pose(t):
         wave_pose = dict(prep_pose)
         # 机械约束说明：
         # 当前 G1 模型没有独立 elbow roll，所以用 shoulder_yaw 作为最接近的
-        # “上臂/前臂横向旋转自由度”，肩 pitch/roll 与肘 pitch 在挥手阶段保持稳定。
+        # “前臂左右招手”的主自由度。肩 pitch/roll 与肘 pitch 在挥手阶段保持稳定，
+        # 只通过 shoulder_yaw + wrist_roll 做礼貌、克制的社交挥手。
         wave_signal = float(np.sin(phase))
-        wave_pose["right_shoulder_yaw_joint"] = RIGHT_ARM_PREP["right_shoulder_yaw_joint"] + 0.34 * wave_signal
+        wave_pose["right_shoulder_yaw_joint"] = RIGHT_ARM_PREP["right_shoulder_yaw_joint"] + 0.26 * wave_signal
         wave_pose["right_shoulder_pitch_joint"] = RIGHT_ARM_PREP["right_shoulder_pitch_joint"]
         wave_pose["right_shoulder_roll_joint"] = RIGHT_ARM_PREP["right_shoulder_roll_joint"]
         wave_pose["right_elbow_joint"] = RIGHT_ARM_PREP["right_elbow_joint"]
-        # 手腕只给一个很小的随动，帮助掌面更像在朝外打招呼，但不作为主动力源。
-        wave_pose["right_wrist_roll_joint"] = RIGHT_ARM_PREP["right_wrist_roll_joint"] + 0.08 * wave_signal
+        wave_pose["right_wrist_pitch_joint"] = RIGHT_ARM_PREP["right_wrist_pitch_joint"]
+        wave_pose["right_wrist_yaw_joint"] = RIGHT_ARM_PREP["right_wrist_yaw_joint"]
+        # 手腕只做很小的同步修正，让掌面更像朝前打招呼，而不是主导摆动。
+        wave_pose["right_wrist_roll_joint"] = RIGHT_ARM_PREP["right_wrist_roll_joint"] + 0.10 * wave_signal
         return wave_pose
 
     if t <= TOTAL_DURATION:
@@ -238,6 +246,8 @@ def print_pose_summary(title, pose):
         "right_shoulder_roll_joint",
         "right_shoulder_yaw_joint",
         "right_elbow_joint",
+        "right_wrist_roll_joint",
+        "right_wrist_pitch_joint",
     ):
         value = pose[joint_name]
         print(f"  {joint_name}: {value:.3f} rad ({rad_to_deg(value):.1f} deg)")
@@ -265,6 +275,7 @@ def main():
     if args.print_targets:
         print_pose_summary("Neutral pose:", build_neutral_pose())
         print_pose_summary("Preparation pose:", build_preparation_pose())
+        print_pose_summary("Wave center pose:", build_wave_center_pose())
 
     initial_pose = get_wave_target_pose(0.0)
     set_initial_pose(data, joint_handles, initial_pose)
