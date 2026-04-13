@@ -11,11 +11,11 @@ import numpy as np
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_SCENE = BASE_DIR / "scene_23dof.xml"
 
-PREP_DURATION = 1.2
-WAVE_FREQUENCY = 1.25
+PREP_DURATION = 1.35
+WAVE_FREQUENCY = 1.5
 WAVE_CYCLES = 3
 WAVE_DURATION = WAVE_CYCLES / WAVE_FREQUENCY
-RETURN_DURATION = 1.25
+RETURN_DURATION = 1.35
 TOTAL_DURATION = PREP_DURATION + WAVE_DURATION + RETURN_DURATION
 
 
@@ -23,6 +23,7 @@ def rad_to_deg(value):
     return value * 180.0 / math.pi
 
 
+# 稳定站立姿态。单位全部是弧度。
 BASE_POSE = {
     "left_hip_pitch_joint": -0.35,
     "left_hip_roll_joint": 0.0,
@@ -55,6 +56,7 @@ BASE_POSE = {
     "right_wrist_yaw_joint": 0.0,
 }
 
+# 右臂自然下垂。
 RIGHT_ARM_NEUTRAL = {
     "right_shoulder_pitch_joint": 0.20,
     "right_shoulder_roll_joint": -0.18,
@@ -65,21 +67,25 @@ RIGHT_ARM_NEUTRAL = {
     "right_wrist_yaw_joint": 0.0,
 }
 
-# 远距欢迎：手举得更高、更外展，摆幅更大，更容易被远处看到。
+# 右臂抬手准备姿态。目标是“前举招手”，不是侧平举摆臂。
+# 结合当前用户反馈，shoulder_pitch 的正方向会把手臂带向后方，
+# 因此前举动作需要使用负值把肘部带到身体斜前方。
+# 注意：G1 当前 23DOF/29DOF 模型都没有独立的 elbow roll，
+# 因此后续挥手主自由度使用 right_shoulder_yaw_joint 作为最接近的等效旋转自由度。
 RIGHT_ARM_PREP = {
-    "right_shoulder_pitch_joint": -0.78,
-    "right_shoulder_roll_joint": -0.22,
-    "right_shoulder_yaw_joint": -0.02,
-    "right_elbow_joint": -0.45,
-    "right_wrist_roll_joint": -1.35,
-    "right_wrist_pitch_joint": -0.05,
+    "right_shoulder_pitch_joint": -0.6,
+    "right_shoulder_roll_joint": -0.0,
+    "right_shoulder_yaw_joint": -0.0,
+    "right_elbow_joint": -0.7,
+    "right_wrist_roll_joint": -1.7,
+    "right_wrist_pitch_joint": 0.0,
     "right_wrist_yaw_joint": 0.0,
 }
 
 KP = {
     "leg": 220.0,
     "waist": 180.0,
-    "arm": 72.0,
+    "arm": 70.0,
     "wrist": 35.0,
 }
 
@@ -163,19 +169,25 @@ def get_wave_target_pose(t):
     if t <= PREP_DURATION + WAVE_DURATION:
         tau = t - PREP_DURATION
         phase = 2.0 * math.pi * WAVE_FREQUENCY * tau
-        wave_signal = float(np.sin(phase))
 
         wave_pose = dict(prep_pose)
-        wave_pose["right_shoulder_yaw_joint"] = RIGHT_ARM_PREP["right_shoulder_yaw_joint"] + 0.40 * wave_signal
+        # 机械约束说明：
+        # 当前 G1 模型没有独立 elbow roll，所以用 shoulder_yaw 作为最接近的
+        # “前臂左右招手”的主自由度。肩 pitch/roll 与肘 pitch 在挥手阶段保持稳定，
+        # 只通过 shoulder_yaw + wrist_roll 做礼貌、克制的社交挥手。
+        wave_signal = float(np.sin(phase))
+        wave_pose["right_shoulder_yaw_joint"] = RIGHT_ARM_PREP["right_shoulder_yaw_joint"] + 0.26 * wave_signal
         wave_pose["right_shoulder_pitch_joint"] = RIGHT_ARM_PREP["right_shoulder_pitch_joint"]
-        wave_pose["right_shoulder_roll_joint"] = RIGHT_ARM_PREP["right_shoulder_roll_joint"] + 0.14 * wave_signal
+        wave_pose["right_shoulder_roll_joint"] = RIGHT_ARM_PREP["right_shoulder_roll_joint"]+0.10 * wave_signal
         wave_pose["right_elbow_joint"] = RIGHT_ARM_PREP["right_elbow_joint"]
         wave_pose["right_wrist_pitch_joint"] = RIGHT_ARM_PREP["right_wrist_pitch_joint"]
         wave_pose["right_wrist_yaw_joint"] = RIGHT_ARM_PREP["right_wrist_yaw_joint"]
-        wave_pose["right_wrist_roll_joint"] = RIGHT_ARM_PREP["right_wrist_roll_joint"] + 0.14 * wave_signal
+        # 手腕只做很小的同步修正，让掌面更像朝前打招呼，而不是主导摆动。
+        wave_pose["right_wrist_roll_joint"] = RIGHT_ARM_PREP["right_wrist_roll_joint"] + 0.10 * wave_signal
         return wave_pose
 
     if t <= TOTAL_DURATION:
+        # 恰好 3 个完整周期后，sin 回到 0，因此末态与 prep_pose 一致，可直接平滑回位。
         tau = t - (PREP_DURATION + WAVE_DURATION)
         return interpolate_pose(prep_pose, neutral_pose, tau / RETURN_DURATION)
 
@@ -197,6 +209,7 @@ def apply_pd_control(data, joint_handles, joint_targets):
         handle = joint_handles.get(joint_name)
         if handle is None:
             continue
+
         q = data.qpos[handle["qpos_adr"]]
         qd = data.qvel[handle["qvel_adr"]]
         group = joint_group(joint_name)
@@ -212,9 +225,17 @@ def resolve_scene_path(scene_arg):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Unitree G1 distance welcome wave demo for MuJoCo")
-    parser.add_argument("--scene", default=str(DEFAULT_SCENE), help="要加载的 MuJoCo 场景 XML，默认 scene_23dof.xml")
-    parser.add_argument("--print-targets", action="store_true", help="打印关键右臂姿态的弧度和角度，方便调参")
+    parser = argparse.ArgumentParser(description="Unitree G1 natural wave demo for MuJoCo")
+    parser.add_argument(
+        "--scene",
+        default=str(DEFAULT_SCENE),
+        help="要加载的 MuJoCo 场景 XML，默认 scene_23dof.xml",
+    )
+    parser.add_argument(
+        "--print-targets",
+        action="store_true",
+        help="打印关键右臂姿态的弧度和角度，方便调参",
+    )
     return parser.parse_args()
 
 
@@ -260,7 +281,7 @@ def main():
     set_initial_pose(data, joint_handles, initial_pose)
     mujoco.mj_forward(model, data)
 
-    print("开始执行挥手1：远距欢迎 / 远距离示意")
+    print("开始执行挥手2：近距正常打招呼")
     with mujoco.viewer.launch_passive(model, data) as viewer:
         while viewer.is_running():
             target_pose = get_wave_target_pose(data.time)

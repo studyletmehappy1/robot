@@ -29,10 +29,31 @@ GREETING_KEYWORDS = (
     "下午好",
     "晚上好",
 )
+DISTANCE_WELCOME_KEYWORDS = (
+    "欢迎大家",
+    "欢迎各位",
+    "展厅",
+    "参观",
+    "来宾",
+    "嘉宾",
+    "远处",
+    "各位朋友",
+)
+CHILD_FRIENDLY_KEYWORDS = (
+    "小朋友",
+    "小朋友们",
+    "小孩",
+    "孩子",
+    "宝宝",
+    "小宝贝",
+    "小朋友你好",
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 G1_ACTION_DIR = REPO_ROOT / "unitree_mujoco-main" / "unitree_robots" / "g1"
 WAVE1_SCRIPT = G1_ACTION_DIR / "action_wave1.py"
+WAVE2_SCRIPT = G1_ACTION_DIR / "action_wave2.py"
+WAVE3_SCRIPT = G1_ACTION_DIR / "action_wave3.py"
 DEFAULT_SCENE = "scene_23dof.xml"
 
 
@@ -66,40 +87,68 @@ def should_allow_wave(user_text, clean_text):
     return any(keyword.lower() in combined for keyword in GREETING_KEYWORDS)
 
 
+def infer_wave_action(user_text="", clean_text=""):
+    combined = f"{user_text or ''} {clean_text or ''}".lower()
+    if any(keyword.lower() in combined for keyword in CHILD_FRIENDLY_KEYWORDS):
+        return "挥手3"
+    if any(keyword.lower() in combined for keyword in DISTANCE_WELCOME_KEYWORDS):
+        return "挥手1"
+    return "挥手2"
+
+
 def filter_allowed_actions(action_list, user_text="", clean_text=""):
-    filtered = []
-    for action_name in action_list:
-        if action_name == "挥手1":
-            if should_allow_wave(user_text, clean_text):
-                filtered.append(action_name)
-            else:
-                logger.warning("当前场景不允许执行动作 %s，已忽略。", action_name)
-        elif action_name in {"挥手2", "挥手3"}:
-            logger.warning("动作 %s 已识别，但当前 MVP 未接线，已忽略。", action_name)
-        else:
-            logger.warning("动作 %s 不在当前白名单内，已忽略。", action_name)
-    return filtered
+    wave_actions = [action_name for action_name in action_list if action_name in {"挥手1", "挥手2", "挥手3"}]
+    other_actions = [action_name for action_name in action_list if action_name not in {"挥手1", "挥手2", "挥手3"}]
+
+    for action_name in other_actions:
+        logger.warning("动作 %s 不在当前白名单内，已忽略。", action_name)
+
+    if not wave_actions:
+        return []
+
+    if not should_allow_wave(user_text, clean_text):
+        logger.warning("当前场景不允许执行挥手动作，已全部忽略。")
+        return []
+
+    selected_action = infer_wave_action(user_text, clean_text)
+    if selected_action not in wave_actions:
+        logger.info("本地规则将动作从 %s 重映射为 %s。", wave_actions[0], selected_action)
+    return [selected_action]
 
 
-def run_wave_action_1():
-    if not WAVE1_SCRIPT.exists():
-        logger.warning("挥手1 动作脚本不存在: %s", WAVE1_SCRIPT)
+def _run_wave_script(script_path, action_name):
+    if not script_path.exists():
+        logger.warning("%s 动作脚本不存在: %s", action_name, script_path)
         return False
 
     python_executable = sys.executable or "python"
-    command = [python_executable, str(WAVE1_SCRIPT), "--scene", DEFAULT_SCENE]
+    command = [python_executable, str(script_path), "--scene", DEFAULT_SCENE]
 
     try:
         subprocess.Popen(command, cwd=str(G1_ACTION_DIR))
-        logger.info("ActionDispatcher: launching wave1 viewer")
+        logger.info("ActionDispatcher: launching %s viewer", action_name)
         return True
     except Exception as exc:
-        logger.error("启动挥手1动作失败: %s", exc)
+        logger.error("启动 %s 动作失败: %s", action_name, exc)
         return False
+
+
+def run_wave_action_1():
+    return _run_wave_script(WAVE1_SCRIPT, "wave1")
+
+
+def run_wave_action_2():
+    return _run_wave_script(WAVE2_SCRIPT, "wave2")
+
+
+def run_wave_action_3():
+    return _run_wave_script(WAVE3_SCRIPT, "wave3")
 
 
 ACTION_MAP = {
     "挥手1": run_wave_action_1,
+    "挥手2": run_wave_action_2,
+    "挥手3": run_wave_action_3,
 }
 
 
