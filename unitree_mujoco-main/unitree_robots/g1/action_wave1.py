@@ -67,12 +67,12 @@ RIGHT_ARM_NEUTRAL = {
 
 # 远距欢迎：手举得更高、更外展，摆幅更大，更容易被远处看到。
 RIGHT_ARM_PREP = {
-    "right_shoulder_pitch_joint": -0.78,
-    "right_shoulder_roll_joint": -0.22,
-    "right_shoulder_yaw_joint": -0.02,
-    "right_elbow_joint": -0.45,
-    "right_wrist_roll_joint": -1.35,
-    "right_wrist_pitch_joint": -0.05,
+    "right_shoulder_pitch_joint": -1.20,
+    "right_shoulder_roll_joint": -0.40,
+    "right_shoulder_yaw_joint": -0.10,
+    "right_elbow_joint": -0.60,
+    "right_wrist_roll_joint": -1.20,
+    "right_wrist_pitch_joint": -0.10,
     "right_wrist_yaw_joint": 0.0,
 }
 
@@ -168,11 +168,11 @@ def get_wave_target_pose(t):
         wave_pose = dict(prep_pose)
         wave_pose["right_shoulder_yaw_joint"] = RIGHT_ARM_PREP["right_shoulder_yaw_joint"] + 0.40 * wave_signal
         wave_pose["right_shoulder_pitch_joint"] = RIGHT_ARM_PREP["right_shoulder_pitch_joint"]
-        wave_pose["right_shoulder_roll_joint"] = RIGHT_ARM_PREP["right_shoulder_roll_joint"] + 0.14 * wave_signal
-        wave_pose["right_elbow_joint"] = RIGHT_ARM_PREP["right_elbow_joint"]
+        wave_pose["right_shoulder_roll_joint"] = RIGHT_ARM_PREP["right_shoulder_roll_joint"] + 0.15 * wave_signal
+        wave_pose["right_elbow_joint"] = RIGHT_ARM_PREP["right_elbow_joint"] + 0.10 * wave_signal
         wave_pose["right_wrist_pitch_joint"] = RIGHT_ARM_PREP["right_wrist_pitch_joint"]
-        wave_pose["right_wrist_yaw_joint"] = RIGHT_ARM_PREP["right_wrist_yaw_joint"]
-        wave_pose["right_wrist_roll_joint"] = RIGHT_ARM_PREP["right_wrist_roll_joint"] + 0.14 * wave_signal
+        wave_pose["right_wrist_yaw_joint"] = RIGHT_ARM_PREP["right_wrist_yaw_joint"]+ 0.25 * wave_signal
+        wave_pose["right_wrist_roll_joint"] = RIGHT_ARM_PREP["right_wrist_roll_joint"] + 0.10 * wave_signal
         return wave_pose
 
     if t <= TOTAL_DURATION:

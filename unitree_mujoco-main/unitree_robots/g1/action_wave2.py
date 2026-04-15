@@ -178,9 +178,9 @@ def get_wave_target_pose(t):
         wave_signal = float(np.sin(phase))
         wave_pose["right_shoulder_yaw_joint"] = RIGHT_ARM_PREP["right_shoulder_yaw_joint"] + 0.26 * wave_signal
         wave_pose["right_shoulder_pitch_joint"] = RIGHT_ARM_PREP["right_shoulder_pitch_joint"]
-        wave_pose["right_shoulder_roll_joint"] = RIGHT_ARM_PREP["right_shoulder_roll_joint"]+0.10 * wave_signal
+        wave_pose["right_shoulder_roll_joint"] = RIGHT_ARM_PREP["right_shoulder_roll_joint"]+0.18 * wave_signal
         wave_pose["right_elbow_joint"] = RIGHT_ARM_PREP["right_elbow_joint"]
-        wave_pose["right_wrist_pitch_joint"] = RIGHT_ARM_PREP["right_wrist_pitch_joint"]
+        wave_pose["right_wrist_pitch_joint"] = RIGHT_ARM_PREP["right_wrist_pitch_joint"]- 0.20 * wave_signal
         wave_pose["right_wrist_yaw_joint"] = RIGHT_ARM_PREP["right_wrist_yaw_joint"]
         # 手腕只做很小的同步修正，让掌面更像朝前打招呼，而不是主导摆动。
         wave_pose["right_wrist_roll_joint"] = RIGHT_ARM_PREP["right_wrist_roll_joint"] + 0.10 * wave_signal

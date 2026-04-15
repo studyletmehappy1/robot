@@ -11,11 +11,11 @@ import numpy as np
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_SCENE = BASE_DIR / "scene_29dof.xml"
 
-PREP_DURATION = 1.1
-WAVE_FREQUENCY = 1.8
+PREP_DURATION = 1.35
+WAVE_FREQUENCY = 1.5
 WAVE_CYCLES = 3
 WAVE_DURATION = WAVE_CYCLES / WAVE_FREQUENCY
-RETURN_DURATION = 1.2
+RETURN_DURATION = 1.35
 TOTAL_DURATION = PREP_DURATION + WAVE_DURATION + RETURN_DURATION
 
 
@@ -65,22 +65,22 @@ RIGHT_ARM_NEUTRAL = {
     "right_wrist_yaw_joint": 0.0,
 }
 
-# 儿童/亲和场景：手位略低、肘更柔和、手腕协同更多，整体更温和。
+# 近处日常：适中高度，肘部半弯，掌心朝向对方
 RIGHT_ARM_PREP = {
-    "right_shoulder_pitch_joint": -0.48,
-    "right_shoulder_roll_joint": 0.05,
-    "right_shoulder_yaw_joint": -0.04,
-    "right_elbow_joint": -0.88,
-    "right_wrist_roll_joint": -1.05,
-    "right_wrist_pitch_joint": 0.05,
+    "right_shoulder_pitch_joint": -0.6,
+    "right_shoulder_roll_joint": -0.0,
+    "right_shoulder_yaw_joint": -0.0,
+    "right_elbow_joint": -0.7,
+    "right_wrist_roll_joint": -1.7,
+    "right_wrist_pitch_joint": 0.0,
     "right_wrist_yaw_joint": 0.0,
 }
 
 KP = {
     "leg": 220.0,
     "waist": 180.0,
-    "arm": 68.0,
-    "wrist": 34.0,
+    "arm": 70.0,
+    "wrist": 35.0,
 }
 
 KD = {
@@ -149,10 +149,6 @@ def build_preparation_pose():
     return pose
 
 
-def build_wave_center_pose():
-    return build_preparation_pose()
-
-
 def get_wave_target_pose(t):
     neutral_pose = build_neutral_pose()
     prep_pose = build_preparation_pose()
@@ -163,16 +159,18 @@ def get_wave_target_pose(t):
     if t <= PREP_DURATION + WAVE_DURATION:
         tau = t - PREP_DURATION
         phase = 2.0 * math.pi * WAVE_FREQUENCY * tau
-        wave_signal = float(np.sin(phase))
 
         wave_pose = dict(prep_pose)
-        wave_pose["right_shoulder_yaw_joint"] = RIGHT_ARM_PREP["right_shoulder_yaw_joint"] + 0.16 * wave_signal
-        wave_pose["right_shoulder_pitch_joint"] = RIGHT_ARM_PREP["right_shoulder_pitch_joint"]
-        wave_pose["right_shoulder_roll_joint"] = RIGHT_ARM_PREP["right_shoulder_roll_joint"] + 0.04 * wave_signal
-        wave_pose["right_elbow_joint"] = RIGHT_ARM_PREP["right_elbow_joint"] + 0.08 * wave_signal
-        wave_pose["right_wrist_pitch_joint"] = RIGHT_ARM_PREP["right_wrist_pitch_joint"]
-        wave_pose["right_wrist_yaw_joint"] = RIGHT_ARM_PREP["right_wrist_yaw_joint"]
-        wave_pose["right_wrist_roll_joint"] = RIGHT_ARM_PREP["right_wrist_roll_joint"] + 0.18 * wave_signal
+        wave_signal = float(np.sin(phase))
+
+        # 近处日常：shoulder_yaw 主导，手腕辅助，克制
+        wave_pose["right_shoulder_yaw_joint"]   = RIGHT_ARM_PREP["right_shoulder_yaw_joint"]  + 0.26 * wave_signal
+        wave_pose["right_shoulder_pitch_joint"]  = RIGHT_ARM_PREP["right_shoulder_pitch_joint"]
+        wave_pose["right_shoulder_roll_joint"]   = RIGHT_ARM_PREP["right_shoulder_roll_joint"] + 0.18 * wave_signal
+        wave_pose["right_elbow_joint"]           = RIGHT_ARM_PREP["right_elbow_joint"]
+        wave_pose["right_wrist_pitch_joint"]     = RIGHT_ARM_PREP["right_wrist_pitch_joint"]   - 0.20 * wave_signal
+        wave_pose["right_wrist_yaw_joint"]       = RIGHT_ARM_PREP["right_wrist_yaw_joint"]
+        wave_pose["right_wrist_roll_joint"]      = RIGHT_ARM_PREP["right_wrist_roll_joint"]    + 0.10 * wave_signal
         return wave_pose
 
     if t <= TOTAL_DURATION:
@@ -212,9 +210,9 @@ def resolve_scene_path(scene_arg):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Unitree G1 child-friendly wave demo for MuJoCo")
-    parser.add_argument("--scene", default=str(DEFAULT_SCENE), help="要加载的 MuJoCo 场景 XML，默认 scene_29dof.xml")
-    parser.add_argument("--print-targets", action="store_true", help="打印关键右臂姿态的弧度和角度，方便调参")
+    parser = argparse.ArgumentParser(description="Unitree G1 wave2 — 近处日常打招呼")
+    parser.add_argument("--scene", default=str(DEFAULT_SCENE))
+    parser.add_argument("--print-targets", action="store_true")
     return parser.parse_args()
 
 
@@ -228,7 +226,7 @@ def print_pose_summary(title, pose):
         "right_wrist_roll_joint",
         "right_wrist_pitch_joint",
     ):
-        value = pose[joint_name]
+        value = pose.get(joint_name, 0.0)
         print(f"  {joint_name}: {value:.3f} rad ({rad_to_deg(value):.1f} deg)")
 
 
@@ -247,20 +245,19 @@ def main():
         "right_shoulder_yaw_joint",
         "right_elbow_joint",
     ]
-    missing_joints = [joint_name for joint_name in required_joints if joint_name not in joint_handles]
+    missing_joints = [j for j in required_joints if j not in joint_handles]
     if missing_joints:
-        raise RuntimeError(f"缺少必要右臂关节，无法执行挥手动作: {missing_joints}")
+        raise RuntimeError(f"缺少必要右臂关节: {missing_joints}")
 
     if args.print_targets:
         print_pose_summary("Neutral pose:", build_neutral_pose())
         print_pose_summary("Preparation pose:", build_preparation_pose())
-        print_pose_summary("Wave center pose:", build_wave_center_pose())
 
     initial_pose = get_wave_target_pose(0.0)
     set_initial_pose(data, joint_handles, initial_pose)
     mujoco.mj_forward(model, data)
 
-    print("开始执行挥手3：儿童 / 亲和场景")
+    print("开始执行挥手2：近距正常打招呼")
     with mujoco.viewer.launch_passive(model, data) as viewer:
         while viewer.is_running():
             target_pose = get_wave_target_pose(data.time)
