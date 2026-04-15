@@ -70,7 +70,7 @@
 - [unitree_mujoco-main/unitree_robots/g1/action_wave1.py](C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1\action_wave1.py)
 - [unitree_mujoco-main/unitree_robots/g1/action_wave2.py](C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1\action_wave2.py)
 - [unitree_mujoco-main/unitree_robots/g1/action_wave3.py](C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1\action_wave3.py)
-- [unitree_mujoco-main/unitree_robots/g1/scene_23dof.xml](C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1\scene_23dof.xml)
+- [unitree_mujoco-main/unitree_robots/g1/scene_29dof.xml](C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1\scene_29dof.xml)
 - [unitree_mujoco-main/unitree_robots/g1/g1_joint_human_mapping.md](C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1\g1_joint_human_mapping.md)
 
 ## 三种挥手语义
@@ -160,14 +160,14 @@ python main.py
 
 ```powershell
 cd C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1
-python action_wave1.py --scene scene_23dof.xml --print-targets
-python action_wave2.py --scene scene_23dof.xml --print-targets
-python action_wave3.py --scene scene_23dof.xml --print-targets
+python action_wave1.py --scene scene_29dof.xml --print-targets
+python action_wave2.py --scene scene_29dof.xml --print-targets
+python action_wave3.py --scene scene_29dof.xml --print-targets
 ```
 
 说明：
 
-- `--scene scene_23dof.xml`
+- `--scene scene_29dof.xml`
   指定当前默认测试场景
 - `--print-targets`
   打印 `Neutral pose`、`Preparation pose`、`Wave center pose` 的关键右臂目标角，方便调参

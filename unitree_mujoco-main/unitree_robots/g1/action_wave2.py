@@ -9,7 +9,7 @@ import numpy as np
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_SCENE = BASE_DIR / "scene_23dof.xml"
+DEFAULT_SCENE = BASE_DIR / "scene_29dof.xml"
 
 PREP_DURATION = 1.35
 WAVE_FREQUENCY = 1.5
@@ -229,7 +229,7 @@ def parse_args():
     parser.add_argument(
         "--scene",
         default=str(DEFAULT_SCENE),
-        help="要加载的 MuJoCo 场景 XML，默认 scene_23dof.xml",
+        help="要加载的 MuJoCo 场景 XML，默认 scene_29dof.xml",
     )
     parser.add_argument(
         "--print-targets",

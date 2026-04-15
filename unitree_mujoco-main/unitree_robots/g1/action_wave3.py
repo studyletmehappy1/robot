@@ -9,7 +9,7 @@ import numpy as np
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_SCENE = BASE_DIR / "scene_23dof.xml"
+DEFAULT_SCENE = BASE_DIR / "scene_29dof.xml"
 
 PREP_DURATION = 1.1
 WAVE_FREQUENCY = 1.8
@@ -213,7 +213,7 @@ def resolve_scene_path(scene_arg):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Unitree G1 child-friendly wave demo for MuJoCo")
-    parser.add_argument("--scene", default=str(DEFAULT_SCENE), help="要加载的 MuJoCo 场景 XML，默认 scene_23dof.xml")
+    parser.add_argument("--scene", default=str(DEFAULT_SCENE), help="要加载的 MuJoCo 场景 XML，默认 scene_29dof.xml")
     parser.add_argument("--print-targets", action="store_true", help="打印关键右臂姿态的弧度和角度，方便调参")
     return parser.parse_args()
 

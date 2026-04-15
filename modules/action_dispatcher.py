@@ -54,7 +54,7 @@ G1_ACTION_DIR = REPO_ROOT / "unitree_mujoco-main" / "unitree_robots" / "g1"
 WAVE1_SCRIPT = G1_ACTION_DIR / "action_wave1.py"
 WAVE2_SCRIPT = G1_ACTION_DIR / "action_wave2.py"
 WAVE3_SCRIPT = G1_ACTION_DIR / "action_wave3.py"
-DEFAULT_SCENE = "scene_23dof.xml"
+DEFAULT_SCENE = "scene_29dof.xml"
 
 
 def _clean_text_spacing(text):
