@@ -58,12 +58,12 @@ class Robot:
             try:
                 future, actions = self.tts_queue.get(timeout=1)
                 audio_results = future.result() or []
+                if actions:
+                    dispatch_actions(actions)
                 for _, audio_file in audio_results:
                     if audio_file:
                         self.player.play(audio_file)
                         self.tts.clean_up(audio_file)
-                if actions:
-                    dispatch_actions(actions)
             except queue.Empty:
                 continue
             except Exception as exc:
@@ -141,6 +141,8 @@ class Robot:
                     if segment:
                         reply_text, actions = parse_llm_actions(segment)
                         filtered_actions = filter_allowed_actions(actions, user_text=text, clean_text=reply_text)
+                        if action_queued:
+                            filtered_actions = []
                         if reply_text:
                             self._queue_tts(reply_text, filtered_actions)
                             is_first_sentence = False
@@ -154,6 +156,8 @@ class Robot:
             if sentence_buffer.strip() and self.chat_lock:
                 reply_text, actions = parse_llm_actions(sentence_buffer.strip())
                 filtered_actions = filter_allowed_actions(actions, user_text=text, clean_text=reply_text)
+                if action_queued:
+                    filtered_actions = []
                 if reply_text:
                     self._queue_tts(reply_text, filtered_actions)
                     if filtered_actions:

@@ -2,9 +2,8 @@ import asyncio
 import inspect
 import logging
 import re
-import subprocess
-import sys
-from pathlib import Path
+
+from modules.sim_runtime_client import send_action
 
 logger = logging.getLogger(__name__)
 
@@ -46,22 +45,14 @@ CHILD_FRIENDLY_KEYWORDS = (
     "孩子",
     "宝宝",
     "小宝贝",
-    "小朋友你好",
 )
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-G1_ACTION_DIR = REPO_ROOT / "unitree_mujoco-main" / "unitree_robots" / "g1"
-WAVE1_SCRIPT = G1_ACTION_DIR / "action_wave1.py"
-WAVE2_SCRIPT = G1_ACTION_DIR / "action_wave2.py"
-WAVE3_SCRIPT = G1_ACTION_DIR / "action_wave3.py"
-DEFAULT_SCENE = "scene_29dof.xml"
 
 
 def _clean_text_spacing(text):
     cleaned = re.sub(r"\s+", " ", text or "").strip()
-    cleaned = re.sub(r"\s*([，。！？；：,.!?;:])\s*", r"\1", cleaned)
-    cleaned = re.sub(r"([，；：,.!?;:])([，；：,.!?;:])+", r"\1", cleaned)
-    cleaned = re.sub(r"^[，。！？；：,.!?;:\s]+", "", cleaned)
+    cleaned = re.sub(r"\s*([，。！？；,.!?;:])\s*", r"\1", cleaned)
+    cleaned = re.sub(r"([，。！？；,.!?;:])([，。！？；,.!?;:])+", r"\1", cleaned)
+    cleaned = re.sub(r"^[，。！？；,.!?;:\s]+", "", cleaned)
     return cleaned.strip()
 
 
@@ -107,7 +98,7 @@ def filter_allowed_actions(action_list, user_text="", clean_text=""):
         return []
 
     if not should_allow_wave(user_text, clean_text):
-        logger.warning("当前场景不允许执行挥手动作，已全部忽略。")
+        logger.info("当前场景不允许执行挥手动作，已忽略。")
         return []
 
     selected_action = infer_wave_action(user_text, clean_text)
@@ -116,33 +107,25 @@ def filter_allowed_actions(action_list, user_text="", clean_text=""):
     return [selected_action]
 
 
-def _run_wave_script(script_path, action_name):
-    if not script_path.exists():
-        logger.warning("%s 动作脚本不存在: %s", action_name, script_path)
-        return False
-
-    python_executable = sys.executable or "python"
-    command = [python_executable, str(script_path), "--scene", DEFAULT_SCENE]
-
-    try:
-        subprocess.Popen(command, cwd=str(G1_ACTION_DIR))
-        logger.info("ActionDispatcher: launching %s viewer", action_name)
-        return True
-    except Exception as exc:
-        logger.error("启动 %s 动作失败: %s", action_name, exc)
-        return False
+def _dispatch_runtime_action(action_code, action_name):
+    ok = send_action(action_code)
+    if ok:
+        logger.info("ActionDispatcher: dispatched %s", action_code)
+    else:
+        logger.warning("ActionDispatcher: failed to dispatch %s", action_code)
+    return ok
 
 
 def run_wave_action_1():
-    return _run_wave_script(WAVE1_SCRIPT, "wave1")
+    return _dispatch_runtime_action("wave1", "挥手1")
 
 
 def run_wave_action_2():
-    return _run_wave_script(WAVE2_SCRIPT, "wave2")
+    return _dispatch_runtime_action("wave2", "挥手2")
 
 
 def run_wave_action_3():
-    return _run_wave_script(WAVE3_SCRIPT, "wave3")
+    return _dispatch_runtime_action("wave3", "挥手3")
 
 
 ACTION_MAP = {

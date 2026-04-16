@@ -1,137 +1,201 @@
-# Robot 智能语音助手
+# Robot G1 语音交互与常驻 MuJoCo 仿真
 
-这是一个围绕 Unitree G1 搭建的语音交互机器人项目。当前仓库已经从“基础语音链路跑通”推进到了“LLM 输出带动作括号文本，并在合理社交场景下触发 MuJoCo 挥手动作”的阶段。
+本项目当前目标是让 Unitree G1 在 `scene_29dof.xml` 中保持单个常驻 MuJoCo viewer，语音回复时根据 LLM 输出的动作暗示词触发 `wave1 / wave2 / wave3`，实现“语音播报 + 挥手动作”联动，而不是每次动作都重复新开一个 viewer。
 
-## 当前进度
+当前阶段只做 Phase 1/2：
+- 站立
+- 挥手
+- 语音联动
 
-### 已跑通的主链路
+walking backend 暂未接入，后续计划切到 C++ 运动后端。
 
-- 唤醒词检测：`sherpa-onnx (Zipformer)`，固定唤醒词为 `小艺小艺`
-- 语音活动检测：`Silero-VAD`
+## 当前能力
+
+- 唤醒词检测：`sherpa-onnx`
+- 语音活动检测：`silero-vad`
 - 语音识别：`FunASR`
 - 大模型对话：`DeepSeek` 流式 API
-- 语音合成：`Edge-TTS`
-- WebSocket 前端：支持浏览器麦克风输入、ASR 实时显示、流式回复气泡拼接
-
-### 已完成的稳定性修复
-
-- TTS 长文本分段与顺序播放
-- ASR 热词提示和轻量词汇归一化
-- Web 前端流式文本同一气泡拼接
-- LLM 输出中的动作括号不会再被 TTS 读出来
-
-### 已完成的动作最小 MVP
-
-- 新增动作解析与分发模块：[modules/action_dispatcher.py](C:\Users\HONOR\Desktop\robot_manus\modules\action_dispatcher.py)
-- 当前已接线三种挥手动作：
-  - `挥手1` -> [unitree_mujoco-main/unitree_robots/g1/action_wave1.py](C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1\action_wave1.py)
-  - `挥手2` -> [unitree_mujoco-main/unitree_robots/g1/action_wave2.py](C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1\action_wave2.py)
-  - `挥手3` -> [unitree_mujoco-main/unitree_robots/g1/action_wave3.py](C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1\action_wave3.py)
-- 本地规则优先：
-  - 远距欢迎 / 展厅迎宾 -> 优先 `挥手1`
-  - 普通近距打招呼 -> 优先 `挥手2`
-  - 儿童 / 亲和欢迎 -> 优先 `挥手3`
-- 对知识问答、解释区别、天气时间等非社交场景，即使模型误输出动作括号，也会被本地拦截，不执行动作
+- 语音合成：`edge-tts`
+- 前端交互：`FastAPI + WebSocket`
+- 仿真动作执行：单个常驻 MuJoCo runtime
+- 动作种类：`wave1 / wave2 / wave3`
+- 动作触发方式：
+  - viewer 热键
+  - HTTP 接口
+  - LLM 回复中的 `(挥手1)/(挥手2)/(挥手3)` 暗示词
 
 ## 当前架构
 
-- 唤醒层：`sherpa-onnx (Zipformer)`，本地部署
-- 检测层：`Silero-VAD`，服务端本地部署
-- 识别层：`FunASR`，服务端本地部署
-- 大脑层：`DeepSeek`，外部云端流式 API
-- 发声层：`Edge-TTS`，外部接口调用
-- 动作仿真层：`MuJoCo + action_wave1/2/3.py`
-- 客户端：当前为 Web 测试端，后续可接物理开发板或真机控制层
+- 语音服务：
+  - [server.py](/C:/Users/HONOR/Desktop/robot_manus/server.py)
+  - [robot.py](/C:/Users/HONOR/Desktop/robot_manus/robot.py)
+- 动作解析与场景门控：
+  - [modules/action_dispatcher.py](/C:/Users/HONOR/Desktop/robot_manus/modules/action_dispatcher.py)
+- 常驻仿真 HTTP 客户端：
+  - [modules/sim_runtime_client.py](/C:/Users/HONOR/Desktop/robot_manus/modules/sim_runtime_client.py)
+- walking 后端预留接口：
+  - [modules/motion_backend_client.py](/C:/Users/HONOR/Desktop/robot_manus/modules/motion_backend_client.py)
+- 常驻 MuJoCo runtime：
+  - [unitree_mujoco-main/simulate_python/g1_runtime.py](/C:/Users/HONOR/Desktop/robot_manus/unitree_mujoco-main/simulate_python/g1_runtime.py)
+- 动作资产：
+  - [unitree_mujoco-main/simulate_python/g1_wave_assets.py](/C:/Users/HONOR/Desktop/robot_manus/unitree_mujoco-main/simulate_python/g1_wave_assets.py)
+  - [unitree_mujoco-main/simulate_python/g1_stand_pose.py](/C:/Users/HONOR/Desktop/robot_manus/unitree_mujoco-main/simulate_python/g1_stand_pose.py)
+- 单动作调试脚本：
+  - [unitree_mujoco-main/unitree_robots/g1/action_wave1.py](/C:/Users/HONOR/Desktop/robot_manus/unitree_mujoco-main/unitree_robots/g1/action_wave1.py)
+  - [unitree_mujoco-main/unitree_robots/g1/action_wave2.py](/C:/Users/HONOR/Desktop/robot_manus/unitree_mujoco-main/unitree_robots/g1/action_wave2.py)
+  - [unitree_mujoco-main/unitree_robots/g1/action_wave3.py](/C:/Users/HONOR/Desktop/robot_manus/unitree_mujoco-main/unitree_robots/g1/action_wave3.py)
 
-## 固定约束
+## 当前固定约束
 
-- 当前唤醒词固定且唯一：`小艺小艺`
-- 当前动作白名单只允许：
-  - `挥手1`
-  - `挥手2`
-  - `挥手3`
-  - `无动作`
-- 当前动作反馈固定通过 MuJoCo viewer 可视化验证
-
-## 关键文件
-
-### 语音与对话
-
-- [modules/asr.py](C:\Users\HONOR\Desktop\robot_manus\modules\asr.py)
-- [modules/tts.py](C:\Users\HONOR\Desktop\robot_manus\modules\tts.py)
-- [modules/llm.py](C:\Users\HONOR\Desktop\robot_manus\modules\llm.py)
-- [modules/action_dispatcher.py](C:\Users\HONOR\Desktop\robot_manus\modules\action_dispatcher.py)
-- [robot.py](C:\Users\HONOR\Desktop\robot_manus\robot.py)
-- [server.py](C:\Users\HONOR\Desktop\robot_manus\server.py)
-- [static/index.html](C:\Users\HONOR\Desktop\robot_manus\static\index.html)
-
-### 动作与仿真
-
-- [unitree_mujoco-main/unitree_robots/g1/action_wave1.py](C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1\action_wave1.py)
-- [unitree_mujoco-main/unitree_robots/g1/action_wave2.py](C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1\action_wave2.py)
-- [unitree_mujoco-main/unitree_robots/g1/action_wave3.py](C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1\action_wave3.py)
-- [unitree_mujoco-main/unitree_robots/g1/scene_29dof.xml](C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1\scene_29dof.xml)
-- [unitree_mujoco-main/unitree_robots/g1/g1_joint_human_mapping.md](C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1\g1_joint_human_mapping.md)
-
-## 三种挥手语义
-
-- `挥手1`
-  远距欢迎 / 远距离示意。手举得更高、摆幅更大，更容易被远处看到。
-- `挥手2`
-  近距正常打招呼。最接近日常面对面寒暄，当前可视为“标准社交挥手”。
-- `挥手3`
-  儿童 / 亲和场景。动作更柔和、手腕协同更多，但不过分夸张卖萌。
-
-## LLM 输出规则
-
-当前 prompt 已约束模型：
-
-- 输出必须包含正文和动作括号
-- 当前只允许输出：
+- G1 主场景统一使用：
+  - `unitree_mujoco-main/unitree_robots/g1/scene_29dof.xml`
+- 当前允许的动作暗示词只有：
   - `(挥手1)`
   - `(挥手2)`
   - `(挥手3)`
   - `(无动作)`
-- 场景建议：
-  - 远距欢迎、欢迎大家、展厅迎宾等场景建议输出 `(挥手1)`
-  - 普通近距打招呼建议输出 `(挥手2)`
-  - 儿童 / 亲和欢迎建议输出 `(挥手3)`
-- 解释知识、比较概念、查询信息、天气时间等场景默认输出 `(无动作)`
-- 禁止输出 `(解释区别手势)` 这类未定义括号内容
+- 当前动作执行方式是：
+  - LLM 输出暗示词
+  - `action_dispatcher` 解析和过滤
+  - HTTP 下发到常驻 `g1_runtime.py`
+- 当前不包含：
+  - walking backend
+  - 先停稳再挥手
+  - 移动中持续挥手
 
-## Action Dispatcher 说明
+## 服务器环境要求
 
-[modules/action_dispatcher.py](C:\Users\HONOR\Desktop\robot_manus\modules\action_dispatcher.py) 负责三件事：
+推荐把“常驻 MuJoCo runtime + 语音服务”都跑在同一台服务器上。当前工作机没有 MuJoCo，也不适合做完整联调。
 
-1. 正则解析动作括号
-- `parse_llm_actions(raw_text)`
-- 输入 LLM 原始文本
-- 输出：
-  - `clean_text`
-  - `action_list`
+### 1. 基础环境
 
-2. 合理性场景门控与动作重映射
-- `should_allow_wave(user_text, clean_text)`
-- `infer_wave_action(user_text, clean_text)`
-- 本地规则优先，不完全信任 LLM 原始动作编号
+- Python：推荐 `3.10`
+- pip：可用
+- MuJoCo：已安装并可正常导入 `mujoco`
+- 系统能打开图形界面或远程桌面，能显示 MuJoCo viewer
+- 网络可访问：
+  - DeepSeek API
+  - Edge TTS 服务
+  - FunASR 首次下载模型所需源
+- 若要使用本地麦克风/扬声器模式，还需要音频设备
 
-3. 动作执行
-- `dispatch_actions(action_list)`
-- 当前通过子进程拉起对应 MuJoCo viewer：
-  - `wave1`
-  - `wave2`
-  - `wave3`
+### 2. Python 依赖
 
-## 运行方式
+先在项目根目录创建并进入虚拟环境，然后安装依赖。
 
-### Web 模式
+```powershell
+cd C:\Users\HONOR\Desktop\robot_manus
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install mujoco
+```
 
-启动服务端：
+如果你的服务器是 Linux，请把激活命令换成：
+
+```bash
+source .venv/bin/activate
+```
+
+### 3. 当前这条线真正需要的关键包
+
+- `mujoco`
+- `fastapi`
+- `uvicorn`
+- `requests`
+- `edge-tts`
+- `funasr`
+- `silero-vad`
+- `sherpa-onnx`
+- `torch`
+- `pygame`
+- `pyaudio`
+
+说明：
+- `server.py` 当前会初始化 `Robot()`，而 `Robot()` 会同时初始化 `PlayerModule` 和 `RecorderModule`，所以即使你只走网页文本联调，当前版本也仍然需要 `pygame` 和 `pyaudio`。
+- 当前 Phase 1/2 不依赖 `unitree_sdk2_python`。它不是本轮测试前置条件。
+
+### 4. 模型与资源文件
+
+仓库内已包含唤醒词模型目录：
+
+- `sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01`
+
+当前仓库还依赖：
+- `keywords.txt`
+- `unitree_mujoco-main/unitree_robots/g1/scene_29dof.xml`
+
+FunASR 模型会在首次运行时自动拉取，所以服务器第一次跑 ASR 时需要联网。
+
+### 5. API Key 与地址配置
+
+当前代码里 `server.py` 和 `main.py` 仍然直接写了 `api_key`。正式上服务器前，请替换成你自己的有效 Key。
+
+如果语音服务和 MuJoCo runtime 不在同一台机器上，可以设置：
+
+```powershell
+$env:SIM_RUNTIME_URL="http://你的运行时机器IP:18080"
+```
+
+默认值是：
+
+```text
+http://127.0.0.1:18080
+```
+
+## 启动顺序
+
+测试时请严格按下面顺序启动，不要一开始就直接开网页。
+
+### 第 1 步：启动常驻 MuJoCo runtime
+
+```powershell
+cd C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\simulate_python
+python g1_runtime.py
+```
+
+预期现象：
+- 打开一个 G1 MuJoCo viewer
+- 模型加载的是 `scene_29dof.xml`
+- 机器人默认站立待机
+- 终端打印 `G1 runtime HTTP server started at http://127.0.0.1:18080`
+
+### 第 2 步：先做 runtime 健康检查
+
+在另一个终端执行：
+
+```powershell
+Invoke-RestMethod -Method Get -Uri http://127.0.0.1:18080/state
+```
+
+预期返回类似：
+
+```json
+{
+  "ok": true,
+  "status": "idle",
+  "active_action": null,
+  "last_completed_action": null,
+  "sim_time": 1.2345
+}
+```
+
+如果这一步失败，不要继续启动语音服务，先解决 runtime 问题。
+
+### 第 3 步：启动语音服务
 
 ```powershell
 cd C:\Users\HONOR\Desktop\robot_manus
 python server.py
 ```
+
+预期现象：
+- FastAPI 启动成功
+- 默认监听 `0.0.0.0:8000`
+- 终端没有因为 `pyaudio`、`pygame`、`edge_tts`、`funasr` 导入失败而报错
+
+### 第 4 步：打开网页端
 
 浏览器访问：
 
@@ -139,24 +203,58 @@ python server.py
 http://localhost:8000
 ```
 
-当前 Web 前端支持：
+## 测试执行流程
 
-- 文本输入
-- 麦克风输入
-- ASR 流式显示
-- 机器人回复流式气泡拼接
-- 服务端 `action` 事件下发
+建议按“从低风险到高耦合”的顺序测试，不要直接跳到整条语音链。
 
-### 终端模式
+### 测试 1：viewer 热键测试
+
+目标：先验证 MuJoCo runtime 和动作资产本身没问题。
+
+在 `g1_runtime.py` 打开的 viewer 中按键：
+
+- `1`：触发 `wave1`
+- `2`：触发 `wave2`
+- `3`：触发 `wave3`
+- `0`：回到中立站姿
+
+预期现象：
+- 只有一个 viewer
+- 挥手时机器人保持站立
+- 不会因为按热键而重新打开新窗口
+- 正在执行动作时再次按 `1/2/3`，新动作会被拒绝，不会抢占当前动作
+
+通过标准：
+- 站姿稳定
+- 挥手后能回中
+- 没有明显前扑、侧倒、严重滑步
+
+### 测试 2：HTTP 动作测试
+
+目标：验证语音链路未来依赖的 HTTP 动作桥。
 
 ```powershell
-cd C:\Users\HONOR\Desktop\robot_manus
-python main.py
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:18080/action -ContentType "application/json" -Body '{"action":"wave2"}'
+Invoke-RestMethod -Method Get -Uri http://127.0.0.1:18080/state
 ```
 
-## MuJoCo 动作单测
+预期现象：
+- viewer 中开始执行 `wave2`
+- 返回结果中 `accepted` 为 `true`
 
-如果你想先单独验证三个挥手动作本身，不走语音链路：
+动作执行中重复发送：
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:18080/action -ContentType "application/json" -Body '{"action":"wave1"}'
+```
+
+预期现象：
+- 返回 `accepted=false`
+- 当前动作继续执行，不被打断
+
+### 测试 3：单动作资产调试
+
+目标：单独调整某一个动作时使用，不走语音链路。
 
 ```powershell
 cd C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1
@@ -165,115 +263,168 @@ python action_wave2.py --scene scene_29dof.xml --print-targets
 python action_wave3.py --scene scene_29dof.xml --print-targets
 ```
 
-说明：
+适用场景：
+- 调整单个 wave 的幅度
+- 核对关节目标
+- 快速回归动作资产
 
-- `--scene scene_29dof.xml`
-  指定当前默认测试场景
-- `--print-targets`
-  打印 `Neutral pose`、`Preparation pose`、`Wave center pose` 的关键右臂目标角，方便调参
+### 测试 4：网页文本联动测试
 
-如果 MuJoCo viewer 弹出，且机器人完整执行对应挥手，说明动作脚本本身是通的。
+目标：先不测麦克风，只测“LLM 输出动作暗示词 -> 语音服务解析 -> runtime 挥手”。
 
-## 语音 -> 动作 联调测试
+操作：
+1. 保持 `g1_runtime.py` 正在运行。
+2. 保持 `server.py` 正在运行。
+3. 打开网页。
+4. 在网页中直接输入一句问候语。
 
-### 文本联调
-
-1. 启动 `server.py`
-2. 打开浏览器前端
-3. 在输入框输入：
+建议测试语句：
 
 ```text
 你好，很高兴见到你
 ```
 
 预期现象：
-
-- LLM 返回正文，并可能附带 `(挥手2)`
+- LLM 输出正文加动作暗示词
 - 前端只显示净化后的正文
-- TTS 只播报正文
-- 如果判定为合理社交场景：
-  - 日志中出现 `ActionDispatcher: launching wave2 viewer`
-  - MuJoCo 窗口弹出
-  - G1 执行一次 `action_wave2.py` 定义的挥手
+- 语音开始播报前，动作已先下发到 runtime
+- viewer 中机器人在开始播报时同步挥手
 
-### 麦克风联调
-
-1. 点击前端“开启环境监听”
-2. 说：
-
-```text
-小艺小艺，你好
-```
-
-预期现象：
-
-- KWS 唤醒成功
-- ASR 正常识别
-- LLM 生成带括号动作的文本
-- 文本被拦截拆分
-- TTS 发声时不读动作名
-- 合理场景下弹出 MuJoCo viewer 并执行对应的 `挥手1 / 挥手2 / 挥手3`
-
-你还可以分别测试：
-
-```text
-欢迎大家来到展厅
-```
-
-预期执行 `挥手1`
-
-```text
-小朋友你好，欢迎你来玩
-```
-
-预期执行 `挥手3`
-
-### 反例联调
-
-输入：
+反例测试：
 
 ```text
 白切鸡和清远鸡有什么区别
 ```
 
 预期现象：
+- 正常回答问题
+- 不触发挥手
 
-- 正常知识回答
-- 不弹 MuJoCo 窗口
-- 不执行任何挥手
+### 测试 5：麦克风语音联动测试
 
-## 如何判断当前 MVP 跑通
+目标：验证完整语音链。
 
-当前“跑通”的标准不是只看括号被识别，而是以下 4 点同时满足：
+前提：
+- 服务器音频输入可用
+- 浏览器麦克风权限正常
 
-1. LLM 原文里的动作括号被解析成功
-2. TTS 只播报 `clean_text`，不会读出 `(挥手1)` / `(挥手2)` / `(挥手3)`
-3. 日志出现动作调度记录和最终 wave 重映射结果
-4. MuJoCo viewer 被拉起，并在窗口中完整执行一次对应的 [action_wave1.py](C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1\action_wave1.py) / [action_wave2.py](C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1\action_wave2.py) / [action_wave3.py](C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1\action_wave3.py)
+建议步骤：
+1. 说唤醒词。
+2. 等待进入倾听状态。
+3. 说一条欢迎类句子。
 
-## 关节动作理解
+建议测试语句：
 
-见：
+```text
+你好，很高兴见到你
+```
 
-- [unitree_mujoco-main/unitree_robots/g1/g1_joint_human_mapping.md](C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\unitree_robots\g1\g1_joint_human_mapping.md)
+预期现象：
+- KWS 检测到唤醒词
+- VAD 正常截断语音
+- ASR 能识别出问句
+- LLM 回复带动作暗示词
+- TTS 开始播报时 viewer 同步挥手
 
-这份文档把机器人关节名映射成更接近人体动作的理解，比如：
+## 推荐测试顺序
 
-- `right_shoulder_pitch_joint`：肩前举 / 后摆
-- `right_shoulder_roll_joint`：肩外展 / 内收
-- `right_shoulder_yaw_joint`：上臂绕自身轴旋转近似
-- `right_elbow_joint`：肘部屈伸
-- `right_wrist_roll_joint`：掌面翻转近似
+请按这个顺序走，出了问题更容易定位：
+
+1. `g1_runtime.py` 能否独立启动
+2. `/state` 是否可访问
+3. viewer 热键能否触发动作
+4. HTTP `/action` 能否触发动作
+5. `server.py` 能否独立启动
+6. 网页文本输入能否触发挥手
+7. 麦克风语音能否完整联动
+
+## 常见问题排查
+
+### 1. viewer 没起来或 MuJoCo 报错
+
+优先检查：
+- `python -c "import mujoco; print(mujoco.__version__)"`
+- 是否能打开图形界面
+- `unitree_mujoco-main/unitree_robots/g1/scene_29dof.xml` 路径是否存在
+
+### 2. `/state` 不通
+
+说明 `g1_runtime.py` 没有正常启动，或者 `18080` 端口被占用。
+
+### 3. 语音服务能回答，但机器人不挥手
+
+优先检查：
+- `SIM_RUNTIME_URL` 是否指向正确地址
+- runtime 是否仍在运行
+- 当前回复是否被本地规则过滤为 `(无动作)`
+- runtime 是否正忙，导致新动作返回 `accepted=false`
+
+### 4. `server.py` 启动失败，提示 `pyaudio` 或 `pygame` 缺失
+
+当前代码路径会在 `Robot()` 初始化时加载音频录制和播放模块，所以这两个依赖现在是必需的。
+
+### 5. 第一次启动 ASR 很慢
+
+正常。FunASR 首次会拉取模型，需要等待下载完成。
+
+## 当前开发阶段
+
+### Phase 1
+
+- 常驻仿真
+- 站立
+- 挥手不倒
+
+### Phase 2
+
+- 语音唤醒
+- TTS 回复
+- 同步触发常驻仿真里的挥手
+
+### Phase 3
+
+- 接入 C++ walking backend
+- 实现“先停稳再挥手”
+
+### Phase 4
+
+- 如果确认需要“移动中持续挥手”，再评估 whole-body controller 或 RL 路线
 
 ## 当前限制
 
-- 当前执行方式是“语音链路解析后，本地规则重映射到 wave1 / wave2 / wave3”
-- 当前动作执行方式仍是“触发时拉起 MuJoCo viewer”
-- 还不是常驻动作进程，也不是实机控制器
-- 后续若切到真机，应保留动作代号层不变，仅替换动作执行后端
+- 当前 runtime 不是 walking backend
+- 当前没有“走路中先停稳再挥手”
+- 当前没有“移动中持续挥手”
+- 当前动作主要是右臂 wave，不含复杂全身补偿
 
-## 下一步建议
+## 直接执行测试的最短路径
 
-- 把三种挥手从“弹出单独 MuJoCo viewer”升级为“连接已有 MuJoCo 常驻进程”
-- 继续优化 prompt，让模型在非社交场景更稳定输出 `(无动作)`
-- 后续扩展到真机时，把 `挥手1 / 2 / 3` 的执行后端从 MuJoCo 脚本切换到机器人 SDK/ROS2 控制接口
+如果你现在只想最快验证“单 viewer 常驻 + 语音联动挥手”，就按下面四步走：
+
+1. 在服务器运行：
+
+```powershell
+cd C:\Users\HONOR\Desktop\robot_manus\unitree_mujoco-main\simulate_python
+python g1_runtime.py
+```
+
+2. 新开终端验证：
+
+```powershell
+Invoke-RestMethod -Method Get -Uri http://127.0.0.1:18080/state
+```
+
+3. 在项目根目录运行：
+
+```powershell
+cd C:\Users\HONOR\Desktop\robot_manus
+python server.py
+```
+
+4. 打开网页 `http://localhost:8000`，输入：
+
+```text
+你好，很高兴见到你
+```
+
+看到“网页回复开始播报时，viewer 里机器人同步挥手”，就说明当前 Phase 1/2 主链路已经跑通。

@@ -152,16 +152,15 @@ async def handle_chat(websocket, text, state):
 
                     segment, actions = item
                     audio_results = await robot.tts.to_tts_many_async(segment)
+                    if actions:
+                        executed_actions = dispatch_actions(actions)
+                        for action_name in executed_actions:
+                            await websocket.send_json({"type": "action", "content": action_name})
                     for chunk_text, audio_file in audio_results:
                         await websocket.send_json({"type": "sentence_text", "content": chunk_text})
                         with open(audio_file, "rb") as file:
                             await websocket.send_bytes(file.read())
                         robot.tts.clean_up(audio_file)
-
-                    if actions:
-                        executed_actions = dispatch_actions(actions)
-                        for action_name in executed_actions:
-                            await websocket.send_json({"type": "action", "content": action_name})
                 finally:
                     audio_task_queue.task_done()
 
@@ -179,6 +178,8 @@ async def handle_chat(websocket, text, state):
                 if segment:
                     reply_text, actions = parse_llm_actions(segment)
                     filtered_actions = filter_allowed_actions(actions, user_text=text, clean_text=reply_text)
+                    if action_sent:
+                        filtered_actions = []
                     if reply_text:
                         await audio_task_queue.put((reply_text, filtered_actions))
                         is_first_sentence = False
@@ -194,6 +195,8 @@ async def handle_chat(websocket, text, state):
         if sentence_buffer.strip():
             reply_text, actions = parse_llm_actions(sentence_buffer.strip())
             filtered_actions = filter_allowed_actions(actions, user_text=text, clean_text=reply_text)
+            if action_sent:
+                filtered_actions = []
             if reply_text:
                 await audio_task_queue.put((reply_text, filtered_actions))
                 if filtered_actions:

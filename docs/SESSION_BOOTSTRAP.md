@@ -1,90 +1,66 @@
 # Session Bootstrap
 
-- 项目：Unitree G1 语音交互 + MuJoCo 动作反馈
-- 当前目标：让语音输入经过 LLM 后，输出净化文本给 TTS，同时在合理社交场景下触发 G1 挥手动作
-- 唤醒词：`小艺小艺`
+- 项目：Unitree G1 语音交互 + 常驻 MuJoCo 挥手反馈
+- 当前阶段：Phase 1/2
+- 当前目标：语音回复时在单个常驻 MuJoCo viewer 中同步触发挥手，不再重复开 viewer
 
 ## 当前主链路
-
-- KWS：`sherpa-onnx (Zipformer)`
+- KWS：`sherpa-onnx`
 - VAD：`Silero-VAD`
 - ASR：`FunASR`
-- LLM：`DeepSeek` 流式 API
+- LLM：`DeepSeek`
 - TTS：`Edge-TTS`
-- 前端：WebSocket + 浏览器麦克风
-- 动作反馈：MuJoCo + G1 挥手动作脚本
+- 前端：`FastAPI + WebSocket`
+- 动作执行：常驻 MuJoCo runtime + HTTP 动作桥
 
-## 当前已完成
+## 当前核心结论
+- 当前 G1 主模型统一为 `scene_29dof.xml`
+- 当前动作只支持：
+  - `挥手1`
+  - `挥手2`
+  - `挥手3`
+  - `无动作`
+- 当前动作后端已经不是“开独立 wave 脚本”，而是：
+  - `modules/action_dispatcher.py`
+  - `modules/sim_runtime_client.py`
+  - `unitree_mujoco-main/simulate_python/g1_runtime.py`
+- 当前 walking 不在这条 Python 主线内
+- 后续 walking 计划切到 C++ backend，Python 保留语音链路和动作资产
 
-- 基础语音链路已跑通：唤醒、识别、对话、播报
-- TTS 长文本分段已修复
-- ASR 热词提示与轻量词汇归一化已加入
-- Web 前端流式文本同一气泡拼接已修复
-- LLM 文本中的括号动作不会再被 TTS 读出来
-- 新增动作解析与分发模块：`modules/action_dispatcher.py`
-- 当前已接线三种挥手动作：
-  - `挥手1`：远距欢迎
-  - `挥手2`：近距正常打招呼
-  - `挥手3`：儿童 / 亲和欢迎
-- 本地规则优先决定最终执行哪个 wave，不完全信任 LLM 原始动作编号
-
-## 关键文件
-
+## 当前关键文件
 - `README.md`
-- `modules/action_dispatcher.py`
-- `modules/llm.py`
-- `robot.py`
 - `server.py`
-- `static/index.html`
+- `robot.py`
+- `modules/action_dispatcher.py`
+- `modules/sim_runtime_client.py`
+- `unitree_mujoco-main/simulate_python/config.py`
+- `unitree_mujoco-main/simulate_python/g1_runtime.py`
+- `unitree_mujoco-main/simulate_python/g1_wave_assets.py`
+- `unitree_mujoco-main/simulate_python/g1_stand_pose.py`
 - `unitree_mujoco-main/unitree_robots/g1/action_wave1.py`
 - `unitree_mujoco-main/unitree_robots/g1/action_wave2.py`
 - `unitree_mujoco-main/unitree_robots/g1/action_wave3.py`
-- `unitree_mujoco-main/unitree_robots/g1/scene_29dof.xml`
-- `unitree_mujoco-main/unitree_robots/g1/g1_joint_human_mapping.md`
 
-## 当前动作规则
-
-- 允许动作代号：
-  - `(挥手1)`
-  - `(挥手2)`
-  - `(挥手3)`
-  - `(无动作)`
-- 合理场景：
-  - 远距欢迎 / 展厅迎宾 -> `挥手1`
-  - 普通近距打招呼 -> `挥手2`
-  - 儿童 / 亲和欢迎 -> `挥手3`
-- 非社交场景：
-  - 知识问答
-  - 概念解释
-  - 对比说明
-  - 天气时间查询
-  - 一律应走 `(无动作)`
+## 当前启动顺序
+1. 启动常驻 runtime
+   - `python unitree_mujoco-main/simulate_python/g1_runtime.py`
+2. 启动语音服务
+   - `python server.py`
+3. 打开网页
+   - `http://localhost:8000`
 
 ## 当前测试入口
+- viewer 热键：
+  - `1 / 2 / 3 / 0`
+- HTTP 接口：
+  - `POST /action`
+  - `GET /state`
+- 语音联动：
+  - 问候语触发挥手
+  - 非社交问句不触发动作
 
-- 启动 Web 服务：
-  - `python server.py`
-- 前端地址：
-  - `http://localhost:8000`
-- 单独测试动作：
-  - `python unitree_mujoco-main/unitree_robots/g1/action_wave1.py --scene scene_29dof.xml --print-targets`
-  - `python unitree_mujoco-main/unitree_robots/g1/action_wave2.py --scene scene_29dof.xml --print-targets`
-  - `python unitree_mujoco-main/unitree_robots/g1/action_wave3.py --scene scene_29dof.xml --print-targets`
-
-## 当前跑通标准
-
-- TTS 只播报净化后的正文，不读动作括号
-- 日志能看到动作解析与最终重映射结果
-- 合理社交场景下会拉起 MuJoCo viewer
-- G1 在 viewer 中执行对应的 `wave1 / wave2 / wave3`
-
-## 当前限制
-
-- 动作执行方式仍是“触发时拉起 MuJoCo viewer”
-- 还不是常驻 MuJoCo 动作进程
-- 还不是真机控制器
-- 后续切真机时，应保留动作代号层，仅替换动作执行后端
-
-## 建议的新会话启动语
-
-- `先看 README.md 和 docs/SESSION_BOOTSTRAP.md，再继续当前项目。`
+## 接手提醒
+- 不要再按“每次动作开一个新 viewer”的思路继续开发
+- 继续扩展动作时，优先改 `g1_wave_assets.py`
+- 继续调站立稳定性时，优先改 `g1_stand_pose.py`
+- 如果要做 walking，请单独开启 C++ backend 方案，不要把 `simulate_python` 直接硬扩成 walking controller
