@@ -9,7 +9,7 @@ import numpy as np
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_SCENE = (BASE_DIR.parent / "unitree_robots" / "g1" / "scene_29dof.xml").resolve()
 
-ROOT_QPOS = np.array([0.0, 0.0, 0.78, 1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+ROOT_QPOS = np.array([0.0, 0.0, 0.81, 1.0, 0.0, 0.0, 0.0], dtype=np.float64)
 DISPLAY_JOINTS = (
     "right_shoulder_pitch_joint",
     "right_shoulder_roll_joint",
@@ -20,49 +20,56 @@ DISPLAY_JOINTS = (
 )
 
 STAND_POSE = {
-    "left_hip_pitch_joint": -0.35,
+    "left_hip_pitch_joint": -0.42,
     "left_hip_roll_joint": 0.0,
     "left_hip_yaw_joint": 0.0,
-    "left_knee_joint": 0.72,
-    "left_ankle_pitch_joint": -0.37,
+    "left_knee_joint": 0.84,
+    "left_ankle_pitch_joint": -0.42,
     "left_ankle_roll_joint": 0.0,
-    "right_hip_pitch_joint": -0.35,
+    "right_hip_pitch_joint": -0.42,
     "right_hip_roll_joint": 0.0,
     "right_hip_yaw_joint": 0.0,
-    "right_knee_joint": 0.72,
-    "right_ankle_pitch_joint": -0.37,
+    "right_knee_joint": 0.84,
+    "right_ankle_pitch_joint": -0.42,
     "right_ankle_roll_joint": 0.0,
     "waist_yaw_joint": 0.0,
     "waist_roll_joint": 0.0,
-    "waist_pitch_joint": 0.0,
-    "left_shoulder_pitch_joint": 0.20,
-    "left_shoulder_roll_joint": 0.18,
+    "waist_pitch_joint": 0.03,
+    "left_shoulder_pitch_joint": 0.16,
+    "left_shoulder_roll_joint": 0.10,
     "left_shoulder_yaw_joint": 0.0,
-    "left_elbow_joint": 0.35,
+    "left_elbow_joint": 0.30,
     "left_wrist_roll_joint": 0.0,
     "left_wrist_pitch_joint": 0.0,
     "left_wrist_yaw_joint": 0.0,
-    "right_shoulder_pitch_joint": 0.20,
-    "right_shoulder_roll_joint": -0.18,
+    "right_shoulder_pitch_joint": 0.16,
+    "right_shoulder_roll_joint": -0.10,
     "right_shoulder_yaw_joint": 0.0,
-    "right_elbow_joint": 0.35,
+    "right_elbow_joint": 0.30,
     "right_wrist_roll_joint": 0.0,
     "right_wrist_pitch_joint": 0.0,
     "right_wrist_yaw_joint": 0.0,
 }
 
 KP = {
-    "leg": 220.0,
-    "waist": 180.0,
-    "arm": 70.0,
-    "wrist": 35.0,
+    "leg": 150.0,
+    "waist": 110.0,
+    "arm": 45.0,
+    "wrist": 18.0,
 }
 
 KD = {
-    "leg": 18.0,
-    "waist": 14.0,
-    "arm": 8.0,
-    "wrist": 4.0,
+    "leg": 16.0,
+    "waist": 12.0,
+    "arm": 6.0,
+    "wrist": 2.5,
+}
+
+MAX_CTRL_STEP = {
+    "leg": 4.0,
+    "waist": 2.5,
+    "arm": 1.5,
+    "wrist": 0.4,
 }
 
 
@@ -142,7 +149,8 @@ def set_initial_pose(data, joint_handles, joint_targets):
             data.qpos[handle["qpos_adr"]] = target
 
 
-def apply_pd_control(data, joint_handles, joint_targets):
+def apply_pd_control(data, joint_handles, joint_targets, previous_ctrl=None):
+    next_ctrl = np.array(previous_ctrl if previous_ctrl is not None else data.ctrl, dtype=np.float64, copy=True)
     for joint_name, target in joint_targets.items():
         handle = joint_handles.get(joint_name)
         if handle is None:
@@ -150,8 +158,15 @@ def apply_pd_control(data, joint_handles, joint_targets):
         q = data.qpos[handle["qpos_adr"]]
         qd = data.qvel[handle["qvel_adr"]]
         group = joint_group(joint_name)
-        torque = KP[group] * (target - q) - KD[group] * qd
-        data.ctrl[handle["actuator_id"]] = float(np.clip(torque, handle["ctrl_min"], handle["ctrl_max"]))
+        desired_torque = KP[group] * (target - q) - KD[group] * qd
+        desired_torque = float(np.clip(desired_torque, handle["ctrl_min"], handle["ctrl_max"]))
+        actuator_id = handle["actuator_id"]
+        previous_torque = float(next_ctrl[actuator_id])
+        max_step = MAX_CTRL_STEP[group]
+        smoothed_torque = float(np.clip(desired_torque, previous_torque - max_step, previous_torque + max_step))
+        next_ctrl[actuator_id] = smoothed_torque
+    data.ctrl[:] = next_ctrl
+    return next_ctrl.copy()
 
 
 def resolve_scene_path(scene_arg):

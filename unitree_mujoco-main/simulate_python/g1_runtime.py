@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import mujoco
 import mujoco.viewer
+import numpy as np
 
 import config
 from g1_stand_pose import (
@@ -26,6 +27,30 @@ HTTP_HOST = "127.0.0.1"
 HTTP_PORT = 18080
 
 
+class BalanceAssist:
+    def __init__(self, anchor_point, rest_length, stiffness=180.0, damping=28.0):
+        self.anchor_point = np.array(anchor_point, dtype=np.float64)
+        self.rest_length = float(rest_length)
+        self.stiffness = float(stiffness)
+        self.damping = float(damping)
+        self.enabled = True
+
+    def retune(self, delta_length):
+        self.rest_length = max(0.2, self.rest_length + delta_length)
+
+    def compute_force(self, position, velocity):
+        displacement = self.anchor_point - position
+        distance = float(np.linalg.norm(displacement))
+        if distance < 1e-6:
+            return np.zeros(3, dtype=np.float64)
+        direction = displacement / distance
+        speed_along_band = float(np.dot(velocity, direction))
+        extension = distance - self.rest_length
+        if extension <= 0.0:
+            return np.zeros(3, dtype=np.float64)
+        return (self.stiffness * extension - self.damping * speed_along_band) * direction
+
+
 class RuntimeController:
     def __init__(self, model, data):
         self.model = model
@@ -38,6 +63,7 @@ class RuntimeController:
         self.motion = None
         self.motion_start_time = 0.0
         self.last_completed_action = None
+        self.previous_ctrl = np.zeros(model.nu, dtype=np.float64)
 
     def request_action(self, action_name):
         with self.state_lock:
@@ -46,6 +72,7 @@ class RuntimeController:
                 self.active_action = None
                 self.motion = None
                 self.motion_start_time = self.data.time
+                self.previous_ctrl[:] = 0.0
                 return True, self.status
 
             if self.motion is not None:
@@ -89,6 +116,9 @@ class RuntimeController:
                 "last_completed_action": self.last_completed_action,
                 "sim_time": round(float(self.data.time), 4),
             }
+
+    def reset_control_memory(self):
+        self.previous_ctrl[:] = 0.0
 
 
 class RuntimeHttpHandler(BaseHTTPRequestHandler):
@@ -159,6 +189,15 @@ def main():
     controller = RuntimeController(model, data)
     set_initial_pose(data, controller.joint_handles, build_stand_pose())
     mujoco.mj_forward(model, data)
+    controller.reset_control_memory()
+
+    torso_body_id = model.body("torso_link").id
+    torso_position = data.xpos[torso_body_id].copy()
+    balance_assist = None
+    if config.ENABLE_ELASTIC_BAND:
+        anchor_point = torso_position + np.array([0.0, 0.0, 1.0], dtype=np.float64)
+        balance_assist = BalanceAssist(anchor_point=anchor_point, rest_length=1.0)
+        logger.info("Balance assist enabled. Hotkeys: 7 loosen, 8 tighten, 9 toggle support.")
 
     glfw = mujoco.glfw.glfw
 
@@ -169,6 +208,19 @@ def main():
             glfw.KEY_3: "wave3",
             glfw.KEY_0: "reset",
         }
+        if balance_assist is not None:
+            if key == glfw.KEY_7:
+                balance_assist.retune(+0.05)
+                logger.info("Balance assist rest length loosened to %.3f", balance_assist.rest_length)
+                return
+            if key == glfw.KEY_8:
+                balance_assist.retune(-0.05)
+                logger.info("Balance assist rest length tightened to %.3f", balance_assist.rest_length)
+                return
+            if key == glfw.KEY_9:
+                balance_assist.enabled = not balance_assist.enabled
+                logger.info("Balance assist enabled=%s", balance_assist.enabled)
+                return
         action_name = key_map.get(key)
         if action_name is None:
             return
@@ -181,7 +233,16 @@ def main():
         logger.info("G1 runtime started. Hotkeys: 1/2/3 trigger wave, 0 resets pose.")
         while viewer.is_running():
             target_pose = controller.current_target_pose()
-            apply_pd_control(data, controller.joint_handles, target_pose)
+            data.xfrc_applied[:] = 0.0
+            if balance_assist is not None and balance_assist.enabled:
+                support_force = balance_assist.compute_force(data.xpos[torso_body_id], data.qvel[:3])
+                data.xfrc_applied[torso_body_id, :3] = support_force
+            controller.previous_ctrl = apply_pd_control(
+                data,
+                controller.joint_handles,
+                target_pose,
+                previous_ctrl=controller.previous_ctrl,
+            )
             mujoco.mj_step(model, data)
             viewer.sync()
             time.sleep(model.opt.timestep)
