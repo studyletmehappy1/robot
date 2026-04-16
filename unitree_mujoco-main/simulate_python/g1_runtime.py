@@ -28,7 +28,7 @@ HTTP_PORT = 18080
 
 
 class BalanceAssist:
-    def __init__(self, anchor_point, rest_length, stiffness=180.0, damping=28.0):
+    def __init__(self, anchor_point, rest_length, stiffness=220.0, damping=36.0):
         self.anchor_point = np.array(anchor_point, dtype=np.float64)
         self.rest_length = float(rest_length)
         self.stiffness = float(stiffness)
@@ -195,9 +195,16 @@ def main():
     torso_position = data.xpos[torso_body_id].copy()
     balance_assist = None
     if config.ENABLE_ELASTIC_BAND:
-        anchor_point = torso_position + np.array([0.0, 0.0, 1.0], dtype=np.float64)
-        balance_assist = BalanceAssist(anchor_point=anchor_point, rest_length=1.0)
-        logger.info("Balance assist enabled. Hotkeys: 7 loosen, 8 tighten, 9 toggle support.")
+        anchor_point = torso_position + np.array([0.06, 0.0, 1.02], dtype=np.float64)
+        initial_distance = float(np.linalg.norm(anchor_point - torso_position))
+        default_rest_length = max(0.2, initial_distance - 0.18)
+        balance_assist = BalanceAssist(anchor_point=anchor_point, rest_length=default_rest_length)
+        logger.info(
+            "Balance assist enabled. anchor=%s initial_distance=%.3f rest_length=%.3f. Hotkeys: 7 loosen, 8 tighten, 9 toggle support.",
+            np.round(anchor_point, 3).tolist(),
+            initial_distance,
+            balance_assist.rest_length,
+        )
 
     glfw = mujoco.glfw.glfw
 

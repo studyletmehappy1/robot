@@ -62,7 +62,7 @@ walking backend 暂未接入，后续计划切到 C++ 运动后端。
   - walking backend
   - 先停稳再挥手
   - 移动中持续挥手
-- 当前默认开启轻量 balance assist，优先保证 humanoid 站立挥手测试可稳定进行
+- 当前默认开启带预紧力的 balance assist，优先保证 humanoid 站立挥手测试可稳定进行
 
 ## 服务器环境要求
 
@@ -116,7 +116,7 @@ source .venv/bin/activate
 说明：
 - `server.py` 当前会初始化 `Robot()`，而 `Robot()` 会同时初始化 `PlayerModule` 和 `RecorderModule`，所以即使你只走网页文本联调，当前版本也仍然需要 `pygame` 和 `pyaudio`。
 - 当前 Phase 1/2 不依赖 `unitree_sdk2_python`。它不是本轮测试前置条件。
-- 当前 `g1_runtime.py` 默认启用轻量平衡辅助，便于先完成站立挥手联调。
+- 当前 `g1_runtime.py` 默认启用带预紧力的平衡辅助，便于先完成站立挥手联调。
 
 ### 4. 模型与资源文件
 
@@ -220,8 +220,8 @@ http://localhost:8000
 - `2`：触发 `wave2`
 - `3`：触发 `wave3`
 - `0`：回到中立站姿
-- `7`：放松 balance assist
-- `8`：收紧 balance assist
+- `7`：放松 balance assist，支撑会变弱
+- `8`：收紧 balance assist，支撑会变强
 - `9`：开关 balance assist
 
 预期现象：
@@ -234,7 +234,7 @@ http://localhost:8000
 - 站姿稳定
 - 挥手后能回中
 - 没有明显前扑、侧倒、严重滑步
-- 如果还轻微下沉或晃动，优先按 `8` 逐步收紧辅助，再观察是否稳定
+- 如果还轻微下沉或后仰，优先按 `8` 逐步收紧辅助，再观察是否稳定
 
 ### 测试 2：HTTP 动作测试
 
