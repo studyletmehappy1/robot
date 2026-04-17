@@ -67,7 +67,7 @@ KD = {
 
 MAX_CTRL_STEP = {
     "leg": 4.0,
-    "waist": 1.5,
+    "waist": 1.2,
     "arm": 1.5,
     "wrist": 0.4,
 }

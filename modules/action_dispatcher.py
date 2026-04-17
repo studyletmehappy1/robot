@@ -7,8 +7,20 @@ from modules.sim_runtime_client import send_action
 logger = logging.getLogger(__name__)
 
 ACTION_PATTERN = re.compile(r"[\(（]\s*([^()（）]{1,32}?)\s*[\)）]")
-VALID_ACTIONS = {"挥手1", "挥手2", "挥手3", "无动作"}
-WAVE_ACTIONS = {"挥手1", "挥手2", "挥手3"}
+ACTION_CODE_MAP = {
+    "挥手1": "wave1",
+    "挥手2": "wave2",
+    "挥手3": "wave3",
+    "点头1": "nod1",
+    "点头2": "nod2",
+    "致意1": "bow1",
+    "致意2": "bow2",
+    "安抚1": "soothe1",
+    "安抚2": "soothe2",
+    "邀请1": "invite1",
+    "邀请2": "invite2",
+}
+VALID_ACTIONS = set(ACTION_CODE_MAP) | {"无动作"}
 
 
 def _clean_text_spacing(text):
@@ -38,23 +50,18 @@ def parse_llm_actions(raw_text):
 
 def filter_allowed_actions(action_list, user_text="", clean_text=""):
     logger.info("LLM解析动作: %s", action_list)
-
-    wave_actions = [action_name for action_name in action_list if action_name in WAVE_ACTIONS]
-    other_actions = [action_name for action_name in action_list if action_name not in WAVE_ACTIONS]
-
-    for action_name in other_actions:
-        logger.warning("动作 %s 不在当前白名单内，已忽略。", action_name)
-
-    if not wave_actions:
-        logger.info("本段没有可执行的挥手动作。user_text=%s clean_text=%s", user_text, clean_text)
+    valid_actions = [action_name for action_name in action_list if action_name in ACTION_CODE_MAP]
+    if not valid_actions:
+        logger.info("本段没有可执行动作。user_text=%s clean_text=%s", user_text, clean_text)
         return []
 
-    filtered_actions = [wave_actions[0]]
+    filtered_actions = [valid_actions[0]]
     logger.info("本段过滤后动作: %s", filtered_actions)
     return filtered_actions
 
 
-def _dispatch_runtime_action(action_code, action_name):
+def _dispatch_runtime_action(action_name):
+    action_code = ACTION_CODE_MAP[action_name]
     ok = send_action(action_code)
     if ok:
         logger.info("ActionDispatcher: 成功下发 %s (%s)", action_name, action_code)
@@ -63,31 +70,11 @@ def _dispatch_runtime_action(action_code, action_name):
     return ok
 
 
-def run_wave_action_1():
-    return _dispatch_runtime_action("wave1", "挥手1")
-
-
-def run_wave_action_2():
-    return _dispatch_runtime_action("wave2", "挥手2")
-
-
-def run_wave_action_3():
-    return _dispatch_runtime_action("wave3", "挥手3")
-
-
-ACTION_MAP = {
-    "挥手1": run_wave_action_1,
-    "挥手2": run_wave_action_2,
-    "挥手3": run_wave_action_3,
-}
-
-
 def dispatch_action(action_name):
-    action_func = ACTION_MAP.get(action_name)
-    if action_func is None:
+    if action_name not in ACTION_CODE_MAP:
         logger.warning("动作 %s 未映射到可执行入口。", action_name)
         return False
-    return action_func()
+    return _dispatch_runtime_action(action_name)
 
 
 def dispatch_actions(action_list):
