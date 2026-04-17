@@ -1,4 +1,3 @@
-import asyncio
 import inspect
 import logging
 import re
@@ -9,43 +8,7 @@ logger = logging.getLogger(__name__)
 
 ACTION_PATTERN = re.compile(r"[\(（]\s*([^()（）]{1,32}?)\s*[\)）]")
 VALID_ACTIONS = {"挥手1", "挥手2", "挥手3", "无动作"}
-GREETING_KEYWORDS = (
-    "你好",
-    "您好",
-    "嗨",
-    "hello",
-    "欢迎",
-    "迎宾",
-    "欢迎来到",
-    "欢迎光临",
-    "欢迎回来",
-    "很高兴见到你",
-    "见到你",
-    "初次见面",
-    "早上好",
-    "上午好",
-    "中午好",
-    "下午好",
-    "晚上好",
-)
-DISTANCE_WELCOME_KEYWORDS = (
-    "欢迎大家",
-    "欢迎各位",
-    "展厅",
-    "参观",
-    "来宾",
-    "嘉宾",
-    "远处",
-    "各位朋友",
-)
-CHILD_FRIENDLY_KEYWORDS = (
-    "小朋友",
-    "小朋友们",
-    "小孩",
-    "孩子",
-    "宝宝",
-    "小宝贝",
-)
+WAVE_ACTIONS = {"挥手1", "挥手2", "挥手3"}
 
 
 def _clean_text_spacing(text):
@@ -73,46 +36,30 @@ def parse_llm_actions(raw_text):
     return clean_text, action_list
 
 
-def should_allow_wave(user_text, clean_text):
-    combined = f"{user_text or ''} {clean_text or ''}".lower()
-    return any(keyword.lower() in combined for keyword in GREETING_KEYWORDS)
-
-
-def infer_wave_action(user_text="", clean_text=""):
-    combined = f"{user_text or ''} {clean_text or ''}".lower()
-    if any(keyword.lower() in combined for keyword in CHILD_FRIENDLY_KEYWORDS):
-        return "挥手3"
-    if any(keyword.lower() in combined for keyword in DISTANCE_WELCOME_KEYWORDS):
-        return "挥手1"
-    return "挥手2"
-
-
 def filter_allowed_actions(action_list, user_text="", clean_text=""):
-    wave_actions = [action_name for action_name in action_list if action_name in {"挥手1", "挥手2", "挥手3"}]
-    other_actions = [action_name for action_name in action_list if action_name not in {"挥手1", "挥手2", "挥手3"}]
+    logger.info("LLM解析动作: %s", action_list)
+
+    wave_actions = [action_name for action_name in action_list if action_name in WAVE_ACTIONS]
+    other_actions = [action_name for action_name in action_list if action_name not in WAVE_ACTIONS]
 
     for action_name in other_actions:
         logger.warning("动作 %s 不在当前白名单内，已忽略。", action_name)
 
     if not wave_actions:
+        logger.info("本段没有可执行的挥手动作。user_text=%s clean_text=%s", user_text, clean_text)
         return []
 
-    if not should_allow_wave(user_text, clean_text):
-        logger.info("当前场景不允许执行挥手动作，已忽略。")
-        return []
-
-    selected_action = infer_wave_action(user_text, clean_text)
-    if selected_action not in wave_actions:
-        logger.info("本地规则将动作从 %s 重映射为 %s。", wave_actions[0], selected_action)
-    return [selected_action]
+    filtered_actions = [wave_actions[0]]
+    logger.info("本段过滤后动作: %s", filtered_actions)
+    return filtered_actions
 
 
 def _dispatch_runtime_action(action_code, action_name):
     ok = send_action(action_code)
     if ok:
-        logger.info("ActionDispatcher: dispatched %s", action_code)
+        logger.info("ActionDispatcher: 成功下发 %s (%s)", action_name, action_code)
     else:
-        logger.warning("ActionDispatcher: failed to dispatch %s", action_code)
+        logger.warning("ActionDispatcher: 下发失败 %s (%s)", action_name, action_code)
     return ok
 
 
@@ -145,9 +92,11 @@ def dispatch_action(action_name):
 
 def dispatch_actions(action_list):
     executed = []
+    logger.info("准备下发动作列表: %s", action_list)
     for action_name in action_list:
         if dispatch_action(action_name):
             executed.append(action_name)
+    logger.info("实际执行动作: %s", executed)
     return executed
 
 

@@ -5,13 +5,9 @@ import os
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
-from modules.action_dispatcher import (
-    dispatch_actions,
-    filter_allowed_actions,
-    parse_llm_actions,
-)
+from modules.action_dispatcher import dispatch_actions, filter_allowed_actions, parse_llm_actions
 from robot import Robot
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -26,7 +22,7 @@ os.makedirs("temp_audio", exist_ok=True)
 api_key = "sk-ZqcUw3Viws3jvOOn6748A3C3719b4c18Ae26D1D7E1B87299"
 robot = Robot(api_key=api_key)
 
-SENTENCE_CUT_PUNCTUATIONS = ("。", "？", "！", ".", "?", "!", "；", ";")
+SENTENCE_CUT_PUNCTUATIONS = ("。", "！", "？", ".", "?", "!", "；", ";")
 FIRST_SENTENCE_EXTRA_PUNCTUATIONS = ("，", ",", "：", ":")
 
 
@@ -41,6 +37,14 @@ def should_flush_segment(chunk, is_first_sentence):
     return any(punctuation in chunk for punctuation in punctuations)
 
 
+def log_segment_actions(segment, reply_text, actions, filtered_actions, action_sent):
+    logger.info("LLM分段原文: %s", segment)
+    logger.info("LLM分段正文: %s", reply_text)
+    logger.info("LLM解析动作: %s", actions)
+    logger.info("本段过滤后动作: %s", filtered_actions)
+    logger.info("本轮是否已执行过动作: %s", action_sent)
+
+
 @app.get("/")
 async def get():
     index_path = os.path.join(STATIC_DIR, "index.html")
@@ -48,6 +52,14 @@ async def get():
         with open(index_path, "r", encoding="utf-8") as file:
             return HTMLResponse(content=file.read())
     return HTMLResponse(content="index.html not found", status_code=404)
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    favicon_path = os.path.join(STATIC_DIR, "favicon.ico")
+    if os.path.exists(favicon_path):
+        return FileResponse(favicon_path)
+    return Response(status_code=204)
 
 
 @app.websocket("/ws")
@@ -153,7 +165,9 @@ async def handle_chat(websocket, text, state):
                     segment, actions = item
                     audio_results = await robot.tts.to_tts_many_async(segment)
                     if actions:
+                        logger.info("音频播放前准备执行动作: %s", actions)
                         executed_actions = dispatch_actions(actions)
+                        logger.info("音频播放前已执行动作: %s", executed_actions)
                         for action_name in executed_actions:
                             await websocket.send_json({"type": "action", "content": action_name})
                     for chunk_text, audio_file in audio_results:
@@ -178,15 +192,21 @@ async def handle_chat(websocket, text, state):
                 if segment:
                     reply_text, actions = parse_llm_actions(segment)
                     filtered_actions = filter_allowed_actions(actions, user_text=text, clean_text=reply_text)
-                    if action_sent:
+                    log_segment_actions(segment, reply_text, actions, filtered_actions, action_sent)
+
+                    if action_sent and filtered_actions:
+                        logger.info("动作被忽略: 本轮已执行过一次挥手。忽略动作=%s", filtered_actions)
                         filtered_actions = []
+
                     if reply_text:
                         await audio_task_queue.put((reply_text, filtered_actions))
                         is_first_sentence = False
                         if filtered_actions:
                             action_sent = True
                     elif filtered_actions:
+                        logger.info("本段无正文，直接执行动作: %s", filtered_actions)
                         executed_actions = dispatch_actions(filtered_actions)
+                        logger.info("本段直接执行结果: %s", executed_actions)
                         for action_name in executed_actions:
                             await websocket.send_json({"type": "action", "content": action_name})
                         action_sent = True
@@ -195,14 +215,20 @@ async def handle_chat(websocket, text, state):
         if sentence_buffer.strip():
             reply_text, actions = parse_llm_actions(sentence_buffer.strip())
             filtered_actions = filter_allowed_actions(actions, user_text=text, clean_text=reply_text)
-            if action_sent:
+            log_segment_actions(sentence_buffer.strip(), reply_text, actions, filtered_actions, action_sent)
+
+            if action_sent and filtered_actions:
+                logger.info("动作被忽略: 本轮已执行过一次挥手。忽略动作=%s", filtered_actions)
                 filtered_actions = []
+
             if reply_text:
                 await audio_task_queue.put((reply_text, filtered_actions))
                 if filtered_actions:
                     action_sent = True
             elif filtered_actions:
+                logger.info("尾段无正文，直接执行动作: %s", filtered_actions)
                 executed_actions = dispatch_actions(filtered_actions)
+                logger.info("尾段直接执行结果: %s", executed_actions)
                 for action_name in executed_actions:
                     await websocket.send_json({"type": "action", "content": action_name})
                 action_sent = True
@@ -215,10 +241,14 @@ async def handle_chat(websocket, text, state):
             robot.messages.append({"role": "assistant", "content": clean_response})
 
         filtered_final_actions = filter_allowed_actions(final_actions, user_text=text, clean_text=clean_response)
+        logger.info("整轮汇总动作: %s -> %s", final_actions, filtered_final_actions)
         if filtered_final_actions and not action_sent:
             executed_actions = dispatch_actions(filtered_final_actions)
+            logger.info("整轮收尾执行动作: %s", executed_actions)
             for action_name in executed_actions:
                 await websocket.send_json({"type": "action", "content": action_name})
+        elif filtered_final_actions and action_sent:
+            logger.info("动作被忽略: 本轮已执行过一次挥手。忽略动作=%s", filtered_final_actions)
 
         await websocket.send_json({"type": "done"})
         robot.kws.reset()
