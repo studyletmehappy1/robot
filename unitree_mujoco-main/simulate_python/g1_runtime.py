@@ -25,6 +25,12 @@ logger = logging.getLogger(__name__)
 
 HTTP_HOST = "127.0.0.1"
 HTTP_PORT = 18080
+WAVE3_ASSIST_SCALE = {
+    "rest_length_delta": -0.07,
+    "stiffness_mult": 1.18,
+    "damping_mult": 1.22,
+    "anchor_offset": np.array([0.09, 0.0, 1.06], dtype=np.float64),
+}
 
 
 class BalanceAssist:
@@ -49,6 +55,12 @@ class BalanceAssist:
         if extension <= 0.0:
             return np.zeros(3, dtype=np.float64)
         return (self.stiffness * extension - self.damping * speed_along_band) * direction
+
+    def configure(self, anchor_point, rest_length, stiffness, damping):
+        self.anchor_point = np.array(anchor_point, dtype=np.float64)
+        self.rest_length = float(rest_length)
+        self.stiffness = float(stiffness)
+        self.damping = float(damping)
 
 
 class RuntimeController:
@@ -192,18 +204,43 @@ def main():
     controller.reset_control_memory()
 
     torso_body_id = model.body("torso_link").id
-    torso_position = data.xpos[torso_body_id].copy()
     balance_assist = None
+    default_assist_profile = None
+    wave3_assist_profile = None
+    last_assist_profile = None
     if config.ENABLE_ELASTIC_BAND:
-        anchor_point = torso_position + np.array([0.06, 0.0, 1.02], dtype=np.float64)
-        initial_distance = float(np.linalg.norm(anchor_point - torso_position))
-        default_rest_length = max(0.2, initial_distance - 0.18)
-        balance_assist = BalanceAssist(anchor_point=anchor_point, rest_length=default_rest_length)
+        torso_position = data.xpos[torso_body_id].copy()
+        default_anchor = torso_position + np.array([0.06, 0.0, 1.02], dtype=np.float64)
+        default_initial_distance = float(np.linalg.norm(default_anchor - torso_position))
+        default_rest_length = max(0.2, default_initial_distance - 0.18)
+        default_assist_profile = {
+            "name": "default",
+            "anchor_point": default_anchor,
+            "rest_length": default_rest_length,
+            "stiffness": 220.0,
+            "damping": 36.0,
+        }
+        wave3_anchor = torso_position + WAVE3_ASSIST_SCALE["anchor_offset"]
+        wave3_initial_distance = float(np.linalg.norm(wave3_anchor - torso_position))
+        wave3_assist_profile = {
+            "name": "wave3",
+            "anchor_point": wave3_anchor,
+            "rest_length": max(0.2, wave3_initial_distance - 0.25),
+            "stiffness": default_assist_profile["stiffness"] * WAVE3_ASSIST_SCALE["stiffness_mult"],
+            "damping": default_assist_profile["damping"] * WAVE3_ASSIST_SCALE["damping_mult"],
+        }
+        balance_assist = BalanceAssist(
+            anchor_point=default_assist_profile["anchor_point"],
+            rest_length=default_assist_profile["rest_length"],
+            stiffness=default_assist_profile["stiffness"],
+            damping=default_assist_profile["damping"],
+        )
         logger.info(
-            "Balance assist enabled. anchor=%s initial_distance=%.3f rest_length=%.3f. Hotkeys: 7 loosen, 8 tighten, 9 toggle support.",
-            np.round(anchor_point, 3).tolist(),
-            initial_distance,
-            balance_assist.rest_length,
+            "Balance assist enabled. default_anchor=%s default_rest_length=%.3f wave3_anchor=%s wave3_rest_length=%.3f. Hotkeys: 7 loosen, 8 tighten, 9 toggle support.",
+            np.round(default_assist_profile["anchor_point"], 3).tolist(),
+            default_assist_profile["rest_length"],
+            np.round(wave3_assist_profile["anchor_point"], 3).tolist(),
+            wave3_assist_profile["rest_length"],
         )
 
     glfw = mujoco.glfw.glfw
@@ -242,6 +279,24 @@ def main():
             target_pose = controller.current_target_pose()
             data.xfrc_applied[:] = 0.0
             if balance_assist is not None and balance_assist.enabled:
+                assist_profile = wave3_assist_profile if controller.active_action == "wave3" else default_assist_profile
+                if assist_profile["name"] != last_assist_profile:
+                    balance_assist.configure(
+                        anchor_point=assist_profile["anchor_point"],
+                        rest_length=assist_profile["rest_length"],
+                        stiffness=assist_profile["stiffness"],
+                        damping=assist_profile["damping"],
+                    )
+                    last_assist_profile = assist_profile["name"]
+                    logger.info(
+                        "Using assist profile=%s rest_length=%.3f stiffness=%.1f damping=%.1f anchor=%s action=%s",
+                        assist_profile["name"],
+                        balance_assist.rest_length,
+                        balance_assist.stiffness,
+                        balance_assist.damping,
+                        np.round(balance_assist.anchor_point, 3).tolist(),
+                        controller.active_action or "idle",
+                    )
                 support_force = balance_assist.compute_force(data.xpos[torso_body_id], data.qvel[:3])
                 data.xfrc_applied[torso_body_id, :3] = support_force
             controller.previous_ctrl = apply_pd_control(
